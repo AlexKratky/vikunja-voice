@@ -407,11 +407,14 @@ async function renderHistory() {
         retry.addEventListener('click', async () => {
             if (entry.status === 'sent' && !confirm(STR.confirm_resend_duplicate)) return;
             retry.disabled = true;
+            setStatus('sending', STR.sending);
             try {
                 await upload(entry.blob, entry.mime);
                 await dbUpdate(entry.id, { status: 'sent' });
-            } catch (_) {
+                setStatus('sent', STR.resent);
+            } catch (err) {
                 retry.disabled = false;
+                setStatus('error', STR.send_error + ': ' + err.message);
             }
             renderHistory();
         });

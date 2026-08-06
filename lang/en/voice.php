@@ -33,6 +33,7 @@ return [
         'badge_error' => 'error',
         'retry' => 'Retry',
         'confirm_resend_duplicate' => 'This recording was already sent. Send again anyway? That may create a duplicate task.',
+        'resent' => 'Resent ✓ (will be processed in the background)',
         'import' => 'Or import audio',
         'import_error' => 'Could not import this file',
         'play_recording' => 'Play recording',

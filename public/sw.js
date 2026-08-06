@@ -1,4 +1,4 @@
-const CACHE = 'vv-v6';
+const CACHE = 'vv-v7';
 const ASSETS = ['/', '/css/app.css', '/js/app.js', '/manifest.json'];
 
 self.addEventListener('install', (e) => {

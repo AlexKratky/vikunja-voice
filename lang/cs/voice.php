@@ -30,6 +30,7 @@ return [
         'badge_error' => 'chyba',
         'retry' => 'Znovu',
         'confirm_resend_duplicate' => 'Tato nahrávka už byla odeslána. Odeslat znovu? Může vzniknout duplicitní úkol.',
+        'resent' => 'Znovu odesláno ✓ (zpracuje se na pozadí)',
         'import' => 'Nebo importovat audio',
         'import_error' => 'Soubor se nepodařilo importovat',
         'play_recording' => 'Přehrát nahrávku',
