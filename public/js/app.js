@@ -109,9 +109,52 @@ function pickMime() {
 
 function extFor(mime) {
     if (mime.includes('webm')) return 'webm';
-    if (mime.includes('mp4')) return 'm4a';
+    if (mime.includes('mp4') || mime.includes('m4a')) return 'm4a';
     if (mime.includes('ogg')) return 'ogg';
+    if (mime.includes('mpeg') || mime.includes('mp3')) return 'mp3';
+    if (mime.includes('wav')) return 'wav';
     return 'bin';
+}
+
+// MIME types the backend RecordingController accepts. Keep in sync.
+const ACCEPTED_MIMES = {
+    'audio/webm': true,
+    'video/webm': true,
+    'audio/ogg': true,
+    'audio/mp4': true,
+    'audio/x-m4a': true,
+    'video/mp4': true,
+    'audio/mpeg': true,
+    'audio/wav': true,
+    'audio/x-wav': true,
+};
+
+const EXT_TO_MIME = {
+    webm: 'audio/webm',
+    ogg: 'audio/ogg',
+    m4a: 'audio/mp4',
+    mp4: 'audio/mp4',
+    mp3: 'audio/mpeg',
+    wav: 'audio/wav',
+};
+
+const MAX_IMPORT_BYTES = 20 * 1024 * 1024;
+
+function mimeFromFile(file) {
+    const type = (file.type || '').split(';')[0].trim().toLowerCase();
+    if (type && ACCEPTED_MIMES[type]) return type;
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    return EXT_TO_MIME[ext] || '';
+}
+
+function showPreview(blob, mime) {
+    current = { blob, mime };
+    const audio = $('preview-audio');
+    const prev = audio.src;
+    audio.src = URL.createObjectURL(blob);
+    if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+    $('preview').hidden = false;
+    setStatus('review', STR.review);
 }
 
 $('record').addEventListener('click', async () => {
@@ -141,21 +184,40 @@ $('record').addEventListener('click', async () => {
         recorder.onstop = () => {
             stream.getTracks().forEach((t) => t.stop());
             const type = (recorder.mimeType || 'audio/webm').split(';')[0];
-            current = { blob: new Blob(recChunks, { type }), mime: type };
-            $('preview-audio').src = URL.createObjectURL(current.blob);
-            $('preview').hidden = false;
+            showPreview(new Blob(recChunks, { type }), type);
             $('record').classList.remove('recording');
             $('record').disabled = false;
-            setStatus('review', STR.review);
+            $('import').disabled = false;
         };
 
         recorder.start();
         $('record').classList.add('recording');
         $('preview').hidden = true;
+        $('import').disabled = true;
         setStatus('recording', STR.recording);
     } catch (err) {
         setStatus('error', STR.mic_error + ': ' + err.message);
     }
+});
+
+$('import').addEventListener('click', () => {
+    if (mediaRecorder && mediaRecorder.state === 'recording') return;
+    $('import-audio').click();
+});
+
+$('import-audio').addEventListener('change', () => {
+    const input = $('import-audio');
+    const file = input.files && input.files[0];
+    input.value = '';
+    if (!file) return;
+
+    const mime = mimeFromFile(file);
+    if (!mime || file.size === 0 || file.size > MAX_IMPORT_BYTES) {
+        setStatus('error', STR.import_error);
+        return;
+    }
+
+    showPreview(file, mime);
 });
 
 $('discard').addEventListener('click', () => {
@@ -334,24 +396,23 @@ async function renderHistory() {
 
         li.appendChild(meta);
 
-        if (entry.status !== 'sent') {
-            const retry = document.createElement('button');
-            retry.type = 'button';
-            retry.className = 'btn btn-ghost btn-retry';
-            retry.innerHTML = SVG_RETRY + '<span></span>';
-            retry.querySelector('span').textContent = STR.retry;
-            retry.addEventListener('click', async () => {
-                retry.disabled = true;
-                try {
-                    await upload(entry.blob, entry.mime);
-                    await dbUpdate(entry.id, { status: 'sent' });
-                } catch (_) {
-                    retry.disabled = false;
-                }
-                renderHistory();
-            });
-            li.appendChild(retry);
-        }
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'btn btn-ghost btn-retry';
+        retry.innerHTML = SVG_RETRY + '<span></span>';
+        retry.querySelector('span').textContent = STR.retry;
+        retry.addEventListener('click', async () => {
+            if (entry.status === 'sent' && !confirm(STR.confirm_resend_duplicate)) return;
+            retry.disabled = true;
+            try {
+                await upload(entry.blob, entry.mime);
+                await dbUpdate(entry.id, { status: 'sent' });
+            } catch (_) {
+                retry.disabled = false;
+            }
+            renderHistory();
+        });
+        li.appendChild(retry);
 
         const share = document.createElement('button');
         share.type = 'button';

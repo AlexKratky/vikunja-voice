@@ -255,6 +255,25 @@ button { font: inherit; }
 
 #record:disabled { cursor: default; filter: saturate(0.6) brightness(0.85); }
 
+.btn-import {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.85rem;
+    color: var(--text-2);
+    margin-top: -0.35rem;
+}
+
+.btn-import svg {
+    width: 0.95rem;
+    height: 0.95rem;
+}
+
+.btn-import:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
 /* expanding pulse rings while recording */
 #record::before,
 #record::after {

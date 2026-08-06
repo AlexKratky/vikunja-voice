@@ -6,6 +6,8 @@ it('renders the recorder page', function () {
     $response->assertOk()
         ->assertSee('Vikunja Voice')
         ->assertSee('id="record"', escape: false)
+        ->assertSee('id="import"', escape: false)
+        ->assertSee('id="import-audio"', escape: false)
         ->assertSee('manifest.json');
 });
 
