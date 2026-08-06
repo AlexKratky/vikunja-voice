@@ -54,11 +54,33 @@ it('sends audio and context, returns decoded extraction', function () {
     });
 });
 
+it('normalizes video/webm to audio/webm', function () {
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
+            'transcript' => 'x', 'title' => 'x', 'label_ids' => [],
+        ])),
+    ]);
+
+    (new GeminiClient)->extract('FAKE-AUDIO-BYTES', 'video/webm', [], [], new DateTimeImmutable);
+
+    Http::assertSent(fn ($request) => $request->data()['contents'][0]['parts'][0]['inlineData']['mimeType'] === 'audio/webm');
+});
+
 it('throws on HTTP error', function () {
     Http::fake(['generativelanguage.googleapis.com/*' => Http::response('', 500)]);
 
     (new GeminiClient)->extract('x', 'audio/webm', [], [], new DateTimeImmutable);
 })->throws(RuntimeException::class);
+
+it('includes the response body in HTTP error messages', function () {
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => Http::response([
+            'error' => ['code' => 400, 'message' => 'The video is corrupted or has wrong video metadata. 0 Frames found.'],
+        ], 400),
+    ]);
+
+    (new GeminiClient)->extract('x', 'audio/webm', [], [], new DateTimeImmutable);
+})->throws(RuntimeException::class, 'The video is corrupted');
 
 it('throws on unparseable response', function () {
     Http::fake([

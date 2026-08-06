@@ -15,6 +15,13 @@ class GeminiClient
     ): array {
         $model = config('voice.gemini.model');
 
+        // Browsers record audio-only WebM that gets sniffed as video/webm;
+        // Gemini then routes it to its video pipeline, which fails on a file
+        // with zero video frames ("The video is corrupted", HTTP 400).
+        if ($mimeType === 'video/webm') {
+            $mimeType = 'audio/webm';
+        }
+
         $response = Http::withHeaders(['x-goog-api-key' => config('voice.gemini.api_key')])
             ->timeout(120)
             ->asJson()
@@ -36,7 +43,9 @@ class GeminiClient
             ]);
 
         if ($response->failed()) {
-            throw new \RuntimeException("Gemini API error: HTTP {$response->status()}");
+            throw new \RuntimeException(
+                "Gemini API error: HTTP {$response->status()}: ".substr($response->body(), 0, 500),
+            );
         }
 
         $text = $response->json('candidates.0.content.parts.0.text');
