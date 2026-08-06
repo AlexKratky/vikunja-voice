@@ -396,6 +396,9 @@ async function renderHistory() {
 
         li.appendChild(meta);
 
+        const actions = document.createElement('div');
+        actions.className = 'entry-actions';
+
         const retry = document.createElement('button');
         retry.type = 'button';
         retry.className = 'btn btn-ghost btn-retry';
@@ -412,7 +415,7 @@ async function renderHistory() {
             }
             renderHistory();
         });
-        li.appendChild(retry);
+        actions.appendChild(retry);
 
         const share = document.createElement('button');
         share.type = 'button';
@@ -420,7 +423,7 @@ async function renderHistory() {
         share.setAttribute('aria-label', STR.share_recording);
         share.innerHTML = SVG_SHARE;
         share.addEventListener('click', () => shareEntry(entry));
-        li.appendChild(share);
+        actions.appendChild(share);
 
         const del = document.createElement('button');
         del.type = 'button';
@@ -432,8 +435,9 @@ async function renderHistory() {
             await dbDelete(entry.id);
             renderHistory();
         });
-        li.appendChild(del);
+        actions.appendChild(del);
 
+        li.appendChild(actions);
         list.appendChild(li);
     }
 }
