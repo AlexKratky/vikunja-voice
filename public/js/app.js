@@ -65,7 +65,6 @@ async function dbAll() {
 
 // ---------- recording ----------
 let mediaRecorder = null;
-let chunks = [];
 let current = null; // { blob, mime }
 
 function pickMime() {
@@ -84,6 +83,12 @@ function extFor(mime) {
 
 $('record').addEventListener('click', async () => {
     if (mediaRecorder && mediaRecorder.state === 'recording') {
+        // Disable immediately: MediaRecorder.state flips to 'inactive'
+        // synchronously inside stop(), before onstop fires. Disabling the
+        // button closes that window so a rapid second tap can't fall
+        // through to the "start a new recording" branch below and race
+        // with this recording's still-pending onstop.
+        $('record').disabled = true;
         mediaRecorder.stop();
         return;
     }
@@ -91,21 +96,27 @@ $('record').addEventListener('click', async () => {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const mime = pickMime();
-        mediaRecorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-        chunks = [];
+        // Keep the recorder instance and its chunk buffer in local scope so
+        // the ondataavailable/onstop closures are self-contained and can't
+        // be corrupted if the shared `mediaRecorder` binding is ever
+        // reassigned before this recording's onstop has run.
+        const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+        const recChunks = [];
+        mediaRecorder = recorder;
 
-        mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
-        mediaRecorder.onstop = () => {
+        recorder.ondataavailable = (e) => recChunks.push(e.data);
+        recorder.onstop = () => {
             stream.getTracks().forEach((t) => t.stop());
-            const type = (mediaRecorder.mimeType || 'audio/webm').split(';')[0];
-            current = { blob: new Blob(chunks, { type }), mime: type };
+            const type = (recorder.mimeType || 'audio/webm').split(';')[0];
+            current = { blob: new Blob(recChunks, { type }), mime: type };
             $('preview-audio').src = URL.createObjectURL(current.blob);
             $('preview').hidden = false;
             $('record').classList.remove('recording');
+            $('record').disabled = false;
             $('status').textContent = 'Zkontroluj a odešli';
         };
 
-        mediaRecorder.start();
+        recorder.start();
         $('record').classList.add('recording');
         $('preview').hidden = true;
         $('status').textContent = 'Nahrávám… (klepni pro stop)';
