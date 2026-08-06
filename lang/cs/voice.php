@@ -12,6 +12,7 @@ return [
         'discard' => 'Zahodit',
         'history' => 'Historie',
         'history_note' => 'jen v tomto prohlížeči',
+        'delete_all' => 'Smazat vše',
     ],
 
     'js' => [
@@ -34,5 +35,9 @@ return [
         'pause' => 'Pozastavit',
         'record' => 'Nahrávat',
         'stop_recording' => 'Zastavit nahrávání',
+        'share_recording' => 'Sdílet nahrávku',
+        'delete_recording' => 'Smazat nahrávku',
+        'confirm_delete' => 'Opravdu smazat tuto nahrávku?',
+        'confirm_delete_all' => 'Opravdu smazat celou historii?',
     ],
 ];

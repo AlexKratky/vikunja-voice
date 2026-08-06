@@ -35,6 +35,19 @@ it('exposes translated strings to the recorder script', function () {
     $this->get('/')->assertSee('Znovu');
 });
 
+it('renders the delete-all history button', function () {
+    $this->get('/')
+        ->assertSee('id="clear-history"', escape: false)
+        ->assertSee('Delete all')
+        ->assertSee('Delete the entire history?');
+
+    config()->set('voice.locale', 'cs');
+
+    $this->get('/')
+        ->assertSee('Smazat vše')
+        ->assertSee('Opravdu smazat celou historii?');
+});
+
 it('tells crawlers not to index the app', function () {
     $this->get('/')
         ->assertHeader('X-Robots-Tag', 'noindex, nofollow, noarchive')

@@ -548,6 +548,25 @@ button { font: inherit; }
 
 .btn-retry svg { width: 0.85rem; height: 0.85rem; }
 
+.history-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+}
+
+.btn-clear {
+    flex: none;
+    padding: 0.35rem 0.7rem;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--text-3);
+}
+
+@media (hover: hover) {
+    .btn-clear:hover:not(:disabled) { color: var(--err); }
+}
+
 /* ---------- desktop ---------- */
 
 @media (min-width: 900px) {

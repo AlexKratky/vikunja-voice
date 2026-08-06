@@ -54,7 +54,10 @@
         </section>
 
         <section id="history-section" class="card" hidden>
-            <h2>{{ __('voice.ui.history') }} <span class="h2-note">{{ __('voice.ui.history_note') }}</span></h2>
+            <div class="history-head">
+                <h2>{{ __('voice.ui.history') }} <span class="h2-note">{{ __('voice.ui.history_note') }}</span></h2>
+                <button id="clear-history" type="button" class="btn btn-ghost btn-clear" hidden>{{ __('voice.ui.delete_all') }}</button>
+            </div>
             <ul id="history"></ul>
         </section>
     </main>

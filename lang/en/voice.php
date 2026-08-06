@@ -13,6 +13,7 @@ return [
         'discard' => 'Discard',
         'history' => 'History',
         'history_note' => 'only in this browser',
+        'delete_all' => 'Delete all',
     ],
 
     // Passed to public/js/app.js via window.VV; keys shared with the
@@ -37,5 +38,9 @@ return [
         'pause' => 'Pause',
         'record' => 'Record',
         'stop_recording' => 'Stop recording',
+        'share_recording' => 'Share recording',
+        'delete_recording' => 'Delete recording',
+        'confirm_delete' => 'Delete this recording?',
+        'confirm_delete_all' => 'Delete the entire history?',
     ],
 ];
