@@ -458,7 +458,7 @@ button { font: inherit; }
 #history .entry {
     display: flex;
     align-items: center;
-    gap: 0.8rem;
+    gap: 0.6rem;
     background: var(--surface-2);
     border: 1px solid var(--line);
     border-radius: 0.9rem;
@@ -565,6 +565,24 @@ button { font: inherit; }
 
 @media (hover: hover) {
     .btn-clear:hover:not(:disabled) { color: var(--err); }
+}
+
+.icon-btn-sm { width: 2rem; height: 2rem; }
+.icon-btn-sm svg { width: 0.85rem; height: 0.85rem; }
+
+.icon-btn-danger { color: var(--text-2); }
+
+.icon-btn-danger:active {
+    border-color: rgba(248, 113, 113, 0.5);
+    color: var(--err);
+}
+
+@media (hover: hover) {
+    .icon-btn-danger:hover {
+        background: rgba(248, 113, 113, 0.1);
+        border-color: rgba(248, 113, 113, 0.35);
+        color: var(--err);
+    }
 }
 
 /* ---------- desktop ---------- */

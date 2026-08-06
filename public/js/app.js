@@ -78,6 +78,24 @@ async function dbAll() {
     });
 }
 
+async function dbDelete(id) {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+        const req = db.transaction('recordings', 'readwrite').objectStore('recordings').delete(id);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+    });
+}
+
+async function dbClear() {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+        const req = db.transaction('recordings', 'readwrite').objectStore('recordings').clear();
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+    });
+}
+
 // ---------- recording ----------
 let mediaRecorder = null;
 let current = null; // { blob, mime }
@@ -197,6 +215,7 @@ $('send').addEventListener('click', async () => {
 const SVG_PLAY = '<svg class="icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M8 5.14v13.72L19 12z"/></svg>';
 const SVG_STOP = '<svg class="icon-stop" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></svg>';
 const SVG_RETRY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>';
+const SVG_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
 
 // One shared player for history entries so plays never overlap and
 // object URLs get revoked when playback stops.
@@ -216,11 +235,19 @@ function stopHistoryPlayback() {
     }
 }
 
+$('clear-history').addEventListener('click', async () => {
+    if (!confirm(STR.confirm_delete_all)) return;
+    await dbClear();
+    renderHistory();
+});
+
 async function renderHistory() {
     const list = $('history');
     stopHistoryPlayback();
     list.innerHTML = '';
     const entries = await dbAll();
+
+    $('clear-history').hidden = entries.length === 0;
 
     if (entries.length === 0) {
         const li = document.createElement('li');
@@ -290,6 +317,18 @@ async function renderHistory() {
             });
             li.appendChild(retry);
         }
+
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'icon-btn icon-btn-sm icon-btn-danger';
+        del.setAttribute('aria-label', STR.delete_recording);
+        del.innerHTML = SVG_TRASH;
+        del.addEventListener('click', async () => {
+            if (!confirm(STR.confirm_delete)) return;
+            await dbDelete(entry.id);
+            renderHistory();
+        });
+        li.appendChild(del);
 
         list.appendChild(li);
     }
