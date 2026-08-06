@@ -35,7 +35,23 @@ Na VPS v produkci nastav v `.env` navíc `APP_ENV=production` a `APP_DEBUG=false
 
 ## Provoz
 
-- Web: standardní Laravel deploy (nginx + php-fpm). Mikrofon vyžaduje **HTTPS**.
+Mikrofon vyžaduje **HTTPS** (v obou variantách níže).
+
+### Coolify (Railpack build pack)
+
+Railpack pozná Laravel automaticky (composer install, `npm run build`, migrace při startu) a servíruje appku přes FrankenPHP/Caddy. Repo obsahuje `start-container.sh`, který navíc spouští queue worker a scheduler ve stejném kontejneru — v Coolify tedy stačí jedna aplikace, žádný zvláštní worker.
+
+1. Nová aplikace z git repa, **Build Pack: Railpack**.
+2. **Persistent Storage**: volume mount na `/app/storage` (nahrávky + SQLite musí přežít redeploy).
+3. **Environment Variables**: vše z tabulky výše a navíc:
+   - `APP_KEY` — vygeneruj lokálně `php artisan key:generate --show`
+   - `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://...`
+   - `DB_CONNECTION=sqlite`, `DB_DATABASE=/app/storage/database.sqlite` — absolutní cesta na volume; výchozí `database/database.sqlite` by se při redeployi smazala
+   - `QUEUE_CONNECTION=database`, `SESSION_DRIVER=database`, `CACHE_STORE=database`, `DB_QUEUE_RETRY_AFTER=330`
+4. Nastav doménu — HTTPS řeší Coolify proxy. Health check můžeš namířit na `/up`.
+
+### VPS (nginx + php-fpm)
+
 - Queue worker (systemd):
 
 ```ini
