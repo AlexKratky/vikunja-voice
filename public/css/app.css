@@ -1,0 +1,84 @@
+* { box-sizing: border-box; margin: 0; }
+
+body {
+    font-family: system-ui, sans-serif;
+    background: #18181b;
+    color: #e4e4e7;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+}
+
+main {
+    width: min(28rem, 100%);
+    padding: 2rem 1.25rem calc(2rem + env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5rem;
+}
+
+h1 { font-size: 1.25rem; color: #a1a1aa; }
+h2 { font-size: 0.9rem; color: #71717a; font-weight: 500; }
+
+#record {
+    width: 8rem;
+    height: 8rem;
+    border-radius: 50%;
+    border: none;
+    background: #dc2626;
+    color: #fff;
+    font-size: 2.5rem;
+    cursor: pointer;
+    transition: transform 0.1s;
+}
+#record:active { transform: scale(0.95); }
+#record.recording { animation: pulse 1.2s infinite; }
+
+@keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.6); }
+    50% { box-shadow: 0 0 0 1.25rem rgba(220, 38, 38, 0); }
+}
+
+#status { color: #a1a1aa; min-height: 1.5rem; }
+
+#preview { display: flex; flex-direction: column; gap: 0.75rem; width: 100%; }
+#preview audio { width: 100%; }
+.preview-actions { display: flex; gap: 0.75rem; }
+
+button {
+    font: inherit;
+    border: none;
+    border-radius: 0.5rem;
+    padding: 0.6rem 1.2rem;
+    cursor: pointer;
+    background: #3f3f46;
+    color: #e4e4e7;
+}
+#send { background: #2563eb; color: #fff; flex: 1; }
+
+#token-form { display: flex; gap: 0.5rem; }
+#token-form input {
+    font: inherit;
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid #3f3f46;
+    background: #27272a;
+    color: inherit;
+}
+
+#history-section { width: 100%; }
+#history { list-style: none; display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; }
+#history li {
+    background: #27272a;
+    border-radius: 0.5rem;
+    padding: 0.6rem 0.8rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+}
+#history .ok { color: #4ade80; }
+#history .err { color: #f87171; }
+#history button { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
