@@ -2,6 +2,7 @@
 
 return [
     'upload_token' => env('APP_UPLOAD_TOKEN', ''),
+    'locale' => env('VOICE_INPUT_LOCALE', 'en'),
     'timezone' => env('VOICE_TIMEZONE', 'Europe/Prague'),
     'retention_days' => (int) env('RETENTION_DAYS', 7),
 

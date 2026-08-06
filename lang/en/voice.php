@@ -1,0 +1,41 @@
+<?php
+
+return [
+    'transcript_label' => 'Transcript',
+    'processing_failed' => 'Voice note processing failed',
+
+    // Blade-only strings.
+    'ui' => [
+        'token_label' => 'Enter upload token',
+        'save' => 'Save',
+        'seek' => 'Position in recording',
+        'send' => 'Send',
+        'discard' => 'Discard',
+        'history' => 'History',
+        'history_note' => 'only in this browser',
+    ],
+
+    // Passed to public/js/app.js via window.VV; keys shared with the
+    // initial blade render (status text, aria labels) live here too.
+    'js' => [
+        'ready' => 'Ready',
+        'recording' => 'Recording… (tap to stop)',
+        'review' => 'Check and send',
+        'sending' => 'Sending…',
+        'sent' => 'Sent ✓ (will be processed in the background)',
+        'send_error' => 'Upload error',
+        'send_error_hint' => 'you can resend it from the history',
+        'mic_error' => 'Microphone unavailable',
+        'invalid_token' => 'Invalid token',
+        'empty_history' => 'No recordings yet',
+        'badge_sent' => 'sent',
+        'badge_error' => 'error',
+        'retry' => 'Retry',
+        'play_recording' => 'Play recording',
+        'stop_playback' => 'Stop playback',
+        'play' => 'Play',
+        'pause' => 'Pause',
+        'record' => 'Record',
+        'stop_recording' => 'Stop recording',
+    ],
+];

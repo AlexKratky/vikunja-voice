@@ -102,7 +102,7 @@ class ProcessRecording implements ShouldQueue
             'error' => $exception?->getMessage() ?? 'unknown',
         ]);
 
-        app(Ntfy::class)->send('❌ Zpracování nahrávky selhalo: '.($exception?->getMessage() ?? 'unknown'));
+        app(Ntfy::class)->send('❌ '.__('voice.processing_failed', locale: config('voice.locale')).': '.($exception?->getMessage() ?? 'unknown'));
     }
 
     private function withAutoLabel(array $labelIds, array $labels): array
@@ -151,6 +151,9 @@ class ProcessRecording implements ShouldQueue
     {
         $html = $description !== '' ? '<p>'.e($description).'</p>' : '';
 
-        return $html.'<hr><p><em>Přepis:</em> '.e($transcript).'</p>';
+        // Explicit locale: queue workers don't run the SetVoiceLocale HTTP middleware.
+        $label = __('voice.transcript_label', locale: config('voice.locale'));
+
+        return $html.'<hr><p><em>'.e($label).':</em> '.e($transcript).'</p>';
     }
 }

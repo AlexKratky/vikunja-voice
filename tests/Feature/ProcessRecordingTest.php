@@ -292,5 +292,47 @@ it('marks recording failed and notifies via failed hook', function () {
         ->and($recording->error)->toContain('HTTP 500');
 
     Http::assertSent(fn ($r) => str_contains($r->url(), 'ntfy.test/topic')
-        && str_contains($r->body(), 'selhalo'));
+        && str_contains($r->body(), 'Voice note processing failed'));
+});
+
+it('sends the failure notification in Czech when locale is cs', function () {
+    config()->set('voice.locale', 'cs');
+    Http::fake(['ntfy.test/*' => Http::response('')]);
+    $recording = makeRecording();
+
+    (new ProcessRecording($recording->id))->failed(new RuntimeException('boom'));
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'ntfy.test/topic')
+        && str_contains($r->body(), 'Zpracování nahrávky selhalo'));
+});
+
+it('labels the transcript in English by default', function () {
+    fakeApis(geminiPayload());
+    $recording = makeRecording();
+
+    (new ProcessRecording($recording->id))->handle(
+        app(App\Services\GeminiClient::class),
+        app(App\Services\VikunjaClient::class),
+        app(App\Services\Ntfy::class),
+    );
+
+    Http::assertSent(fn ($r) => $r->method() === 'PUT'
+        && str_contains($r->url(), '/projects/5/tasks')
+        && str_contains($r->data()['description'], 'Transcript:'));
+});
+
+it('labels the transcript in Czech when locale is cs', function () {
+    config()->set('voice.locale', 'cs');
+    fakeApis(geminiPayload());
+    $recording = makeRecording();
+
+    (new ProcessRecording($recording->id))->handle(
+        app(App\Services\GeminiClient::class),
+        app(App\Services\VikunjaClient::class),
+        app(App\Services\Ntfy::class),
+    );
+
+    Http::assertSent(fn ($r) => $r->method() === 'PUT'
+        && str_contains($r->url(), '/projects/5/tasks')
+        && str_contains($r->data()['description'], 'Přepis:'));
 });

@@ -66,6 +66,71 @@ it('normalizes video/webm to audio/webm', function () {
     Http::assertSent(fn ($request) => $request->data()['contents'][0]['parts'][0]['inlineData']['mimeType'] === 'audio/webm');
 });
 
+it('uses the English prompt and user instruction by default', function () {
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
+            'transcript' => 'x', 'title' => 'x', 'label_ids' => [],
+        ])),
+    ]);
+
+    (new GeminiClient)->extract('x', 'audio/webm', [], [], new DateTimeImmutable);
+
+    Http::assertSent(function ($request) {
+        $body = $request->data();
+
+        return str_contains($body['systemInstruction']['parts'][0]['text'], 'dictated in English')
+            && str_contains($body['contents'][0]['parts'][1]['text'], 'Process this voice note');
+    });
+});
+
+it('uses the Czech prompt and user instruction when locale is cs', function () {
+    config()->set('voice.locale', 'cs');
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
+            'transcript' => 'x', 'title' => 'x', 'label_ids' => [],
+        ])),
+    ]);
+
+    (new GeminiClient)->extract('x', 'audio/webm', [], [], new DateTimeImmutable);
+
+    Http::assertSent(function ($request) {
+        $body = $request->data();
+
+        return str_contains($body['systemInstruction']['parts'][0]['text'], 'česky diktované hlasové poznámky')
+            && str_contains($body['contents'][0]['parts'][1]['text'], 'Zpracuj tuto hlasovou poznámku');
+    });
+});
+
+it('falls back to the English prompt for unsupported locales', function () {
+    config()->set('voice.locale', 'de');
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
+            'transcript' => 'x', 'title' => 'x', 'label_ids' => [],
+        ])),
+    ]);
+
+    (new GeminiClient)->extract('x', 'audio/webm', [], [], new DateTimeImmutable);
+
+    Http::assertSent(fn ($request) => str_contains(
+        $request->data()['systemInstruction']['parts'][0]['text'], 'dictated in English',
+    ));
+});
+
+it('puts the configured timezone in the prompt', function () {
+    config()->set('voice.timezone', 'America/New_York');
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
+            'transcript' => 'x', 'title' => 'x', 'label_ids' => [],
+        ])),
+    ]);
+
+    (new GeminiClient)->extract('x', 'audio/webm', [], [], new DateTimeImmutable);
+
+    Http::assertSent(fn ($request) => str_contains(
+        $request->data()['systemInstruction']['parts'][0]['text'], 'America/New_York',
+    ));
+});
+
 it('throws on HTTP error', function () {
     Http::fake(['generativelanguage.googleapis.com/*' => Http::response('', 500)]);
 

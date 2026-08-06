@@ -1,6 +1,21 @@
 const API = '/api/recordings';
 const $ = (id) => document.getElementById(id);
 
+// Locale + UI strings injected by the blade template (window.VV). The guard
+// only prevents a hard crash if a stale cached page without VV loads this file.
+const VV = window.VV || { locale: 'en', strings: {} };
+const STR = VV.strings;
+
+// Single place that changes the status line: text, the data-state attribute
+// CSS colors the dot by, and the record button's aria-label (what a click on
+// it will do) always move together.
+function setStatus(state, text) {
+    const status = $('status');
+    status.textContent = text;
+    status.dataset.state = state;
+    $('record').setAttribute('aria-label', state === 'recording' ? STR.stop_recording : STR.record);
+}
+
 // ---------- token ----------
 let token = localStorage.getItem('vv_token') || '';
 
@@ -113,22 +128,22 @@ $('record').addEventListener('click', async () => {
             $('preview').hidden = false;
             $('record').classList.remove('recording');
             $('record').disabled = false;
-            $('status').textContent = 'Zkontroluj a odešli';
+            setStatus('review', STR.review);
         };
 
         recorder.start();
         $('record').classList.add('recording');
         $('preview').hidden = true;
-        $('status').textContent = 'Nahrávám… (klepni pro stop)';
+        setStatus('recording', STR.recording);
     } catch (err) {
-        $('status').textContent = 'Mikrofon nedostupný: ' + err.message;
+        setStatus('error', STR.mic_error + ': ' + err.message);
     }
 });
 
 $('discard').addEventListener('click', () => {
     current = null;
     $('preview').hidden = true;
-    $('status').textContent = 'Připraveno';
+    setStatus('ready', STR.ready);
 });
 
 // ---------- upload ----------
@@ -146,7 +161,7 @@ async function upload(blob, mime) {
         localStorage.removeItem('vv_token');
         token = '';
         showSections();
-        throw new Error('Neplatný token');
+        throw new Error(STR.invalid_token);
     }
     if (!res.ok) throw new Error('HTTP ' + res.status);
 }
@@ -157,7 +172,7 @@ $('send').addEventListener('click', async () => {
 
     $('preview').hidden = true;
     current = null;
-    $('status').textContent = 'Odesílám…';
+    setStatus('sending', STR.sending);
 
     let id = null;
     try {
@@ -169,10 +184,10 @@ $('send').addEventListener('click', async () => {
     try {
         await upload(blob, mime);
         if (id !== null) await dbUpdate(id, { status: 'sent' });
-        $('status').textContent = 'Odesláno ✓ (zpracuje se na pozadí)';
+        setStatus('sent', STR.sent);
     } catch (err) {
         if (id !== null) await dbUpdate(id, { status: 'error' });
-        $('status').textContent = 'Chyba odeslání: ' + err.message + ' — v historii jde poslat znovu';
+        setStatus('error', STR.send_error + ': ' + err.message + ' — ' + STR.send_error_hint);
     }
 
     renderHistory();
@@ -196,7 +211,7 @@ function stopHistoryPlayback() {
     }
     if (historyPlayBtn) {
         historyPlayBtn.classList.remove('playing');
-        historyPlayBtn.setAttribute('aria-label', 'Přehrát nahrávku');
+        historyPlayBtn.setAttribute('aria-label', STR.play_recording);
         historyPlayBtn = null;
     }
 }
@@ -210,7 +225,7 @@ async function renderHistory() {
     if (entries.length === 0) {
         const li = document.createElement('li');
         li.className = 'empty';
-        li.textContent = 'Zatím žádné nahrávky';
+        li.textContent = STR.empty_history;
         list.appendChild(li);
         return;
     }
@@ -222,7 +237,7 @@ async function renderHistory() {
         const play = document.createElement('button');
         play.type = 'button';
         play.className = 'icon-btn';
-        play.setAttribute('aria-label', 'Přehrát nahrávku');
+        play.setAttribute('aria-label', STR.play_recording);
         play.innerHTML = SVG_PLAY + SVG_STOP;
         play.addEventListener('click', () => {
             if (historyPlayBtn === play) {
@@ -234,7 +249,7 @@ async function renderHistory() {
             historyAudio.addEventListener('ended', stopHistoryPlayback);
             historyPlayBtn = play;
             play.classList.add('playing');
-            play.setAttribute('aria-label', 'Zastavit přehrávání');
+            play.setAttribute('aria-label', STR.stop_playback);
             historyAudio.play();
         });
         li.appendChild(play);
@@ -242,7 +257,7 @@ async function renderHistory() {
         const meta = document.createElement('div');
         meta.className = 'entry-meta';
 
-        const when = new Date(entry.createdAt).toLocaleString('cs-CZ', {
+        const when = new Date(entry.createdAt).toLocaleString(VV.locale, {
             day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit',
         });
         const time = document.createElement('span');
@@ -252,7 +267,7 @@ async function renderHistory() {
 
         const badge = document.createElement('span');
         badge.className = entry.status === 'sent' ? 'badge ok' : 'badge err';
-        badge.textContent = entry.status === 'sent' ? 'odesláno' : 'chyba';
+        badge.textContent = entry.status === 'sent' ? STR.badge_sent : STR.badge_error;
         meta.appendChild(badge);
 
         li.appendChild(meta);
@@ -261,7 +276,8 @@ async function renderHistory() {
             const retry = document.createElement('button');
             retry.type = 'button';
             retry.className = 'btn btn-ghost btn-retry';
-            retry.innerHTML = SVG_RETRY + '<span>Znovu</span>';
+            retry.innerHTML = SVG_RETRY + '<span></span>';
+            retry.querySelector('span').textContent = STR.retry;
             retry.addEventListener('click', async () => {
                 retry.disabled = true;
                 try {
@@ -279,33 +295,6 @@ async function renderHistory() {
     }
 }
 
-// ---------- presentation: status pill & record button label ----------
-// Maps the exact status strings set above onto a data-state attribute so
-// CSS can color the status dot, and keeps the record button's aria-label
-// in sync with what a click on it will do.
-(() => {
-    const statusEl = $('status');
-    const record = $('record');
-
-    const stateFor = (text) => {
-        if (text.startsWith('Nahrávám')) return 'recording';
-        if (text.startsWith('Odesílám')) return 'sending';
-        if (text.startsWith('Odesláno')) return 'sent';
-        if (text.startsWith('Zkontroluj')) return 'review';
-        if (text.startsWith('Chyba') || text.startsWith('Mikrofon')) return 'error';
-        return 'ready';
-    };
-
-    const sync = () => {
-        const state = stateFor(statusEl.textContent.trim());
-        statusEl.dataset.state = state;
-        record.setAttribute('aria-label', state === 'recording' ? 'Zastavit nahrávání' : 'Nahrávat');
-    };
-
-    new MutationObserver(sync).observe(statusEl, { childList: true, characterData: true, subtree: true });
-    sync();
-})();
-
 // ---------- presentation: preview player ----------
 // Minimal custom player over the (controls-less) #preview-audio element.
 (() => {
@@ -322,7 +311,7 @@ async function renderHistory() {
 
     const setPlaying = (playing) => {
         toggle.classList.toggle('playing', playing);
-        toggle.setAttribute('aria-label', playing ? 'Pozastavit' : 'Přehrát');
+        toggle.setAttribute('aria-label', playing ? STR.pause : STR.play);
     };
 
     const render = () => {

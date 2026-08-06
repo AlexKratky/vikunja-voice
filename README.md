@@ -30,8 +30,14 @@ Browser PWA ──POST /api/recordings──▶ Laravel ──▶ storage (priva
 - Daily retention pruning of processed audio files
 - Single-user by design: one shared upload token, no accounts, and the server exposes **no endpoint to read, list, or download recordings**
 
+## Language
+
+`VOICE_INPUT_LOCALE` sets the language of the whole pipeline: the Gemini extraction prompt (i.e. the language you dictate in), the recorder UI, and notification/transcript texts. Supported values are `en` (default) and `cs`; anything else falls back to English.
+
+Adding a language takes two focused changes — a `lang/<locale>/voice.php` translation file and a system prompt in `app/Services/GeminiClient.php`. PRs welcome.
+
 > [!NOTE]
-> **Czech-first.** The recorder UI and the Gemini extraction prompt are written in Czech. To use another language, adapt `systemPrompt()` in `app/Services/GeminiClient.php` and the strings in `resources/views/recorder.blade.php` + `public/js/app.js`.
+> **Upgrading from a pre-locale version?** The default is English. Set `VOICE_INPUT_LOCALE=cs` in `.env` to keep the original Czech behavior.
 
 ## Requirements
 
@@ -57,6 +63,7 @@ Then fill in `.env`:
 | Variable | Description |
 |---|---|
 | `APP_UPLOAD_TOKEN` | long random upload token — generate with `openssl rand -hex 32` |
+| `VOICE_INPUT_LOCALE` | language of dictation, UI, and notifications: `en` (default) or `cs` |
 | `GEMINI_API_KEY` | key from Google AI Studio |
 | `GEMINI_MODEL` | default `gemini-2.5-flash` |
 | `VIKUNJA_URL` | e.g. `https://vikunja.example.com` |
