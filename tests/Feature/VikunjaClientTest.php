@@ -69,6 +69,35 @@ it('attaches a label via PUT', function () {
     Http::assertSent(fn ($r) => $r->method() === 'PUT' && $r->data()['label_id'] === 9);
 });
 
+it('finds a user id by exact username among partial matches', function () {
+    Http::fake([
+        'vikunja.test/api/v1/users*' => Http::response([
+            ['id' => 7, 'username' => 'alexander'],
+            ['id' => 1, 'username' => 'alex'],
+        ]),
+    ]);
+
+    expect((new VikunjaClient)->findUserId('alex'))->toBe(1);
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), '/api/v1/users') && $r->data()['s'] === 'alex');
+});
+
+it('returns null when no user matches', function () {
+    Http::fake(['vikunja.test/api/v1/users*' => Http::response('null')]);
+
+    expect((new VikunjaClient)->findUserId('ghost'))->toBeNull();
+});
+
+it('assigns a user via PUT', function () {
+    Http::fake(['vikunja.test/api/v1/tasks/42/assignees' => Http::response(['user_id' => 1])]);
+
+    (new VikunjaClient)->assignUser(42, 1);
+
+    Http::assertSent(fn ($r) => $r->method() === 'PUT'
+        && str_contains($r->url(), '/api/v1/tasks/42/assignees')
+        && $r->data()['user_id'] === 1);
+});
+
 it('throws on error responses', function () {
     Http::fake(['vikunja.test/*' => Http::response('', 503)]);
 

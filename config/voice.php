@@ -14,6 +14,8 @@ return [
         'url' => rtrim(env('VIKUNJA_URL', ''), '/'),
         'token' => env('VIKUNJA_API_TOKEN', ''),
         'default_project_id' => (int) env('VIKUNJA_DEFAULT_PROJECT_ID', 0),
+        'auto_assign_username' => env('VIKUNJA_AUTO_ASSIGN_USERNAME'),
+        'auto_label' => env('VIKUNJA_AUTO_LABEL'),
     ],
 
     'ntfy' => [

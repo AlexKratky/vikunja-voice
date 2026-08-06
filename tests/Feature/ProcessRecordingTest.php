@@ -14,6 +14,8 @@ beforeEach(function () {
     config()->set('voice.ntfy.url', 'https://ntfy.test');
     config()->set('voice.ntfy.topic', 'topic');
     config()->set('voice.ntfy.notify_success', true);
+    config()->set('voice.vikunja.auto_assign_username', null);
+    config()->set('voice.vikunja.auto_label', null);
 
     Storage::fake('local');
 });
@@ -39,6 +41,8 @@ function fakeApis(array $gemini, array $overrides = []): void
         ]),
         'vikunja.test/api/v1/projects/*/tasks' => Http::response(['id' => 42]),
         'vikunja.test/api/v1/tasks/42/labels' => Http::response([]),
+        'vikunja.test/api/v1/tasks/42/assignees' => Http::response([]),
+        'vikunja.test/api/v1/users*' => Http::response([['id' => 1, 'username' => 'alex']]),
         'ntfy.test/*' => Http::response(''),
     ], $overrides));
 }
@@ -144,6 +148,124 @@ it('does not fail the task when label attach fails', function () {
     );
 
     expect($recording->refresh()->status)->toBe('done');
+});
+
+it('attaches the auto label case-insensitively beside extracted ones', function () {
+    config()->set('voice.vikunja.auto_label', 'voice');
+    fakeApis(geminiPayload(), [
+        'vikunja.test/api/v1/labels' => Http::response([
+            ['id' => 9, 'title' => 'doma'],
+            ['id' => 77, 'title' => 'Voice'],
+        ]),
+    ]);
+    $recording = makeRecording();
+
+    (new ProcessRecording($recording->id))->handle(
+        app(App\Services\GeminiClient::class),
+        app(App\Services\VikunjaClient::class),
+        app(App\Services\Ntfy::class),
+    );
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), '/tasks/42/labels') && $r->data()['label_id'] === 9);
+    Http::assertSent(fn ($r) => str_contains($r->url(), '/tasks/42/labels') && $r->data()['label_id'] === 77);
+});
+
+it('does not attach the auto label twice when already extracted', function () {
+    config()->set('voice.vikunja.auto_label', 'Voice');
+    fakeApis(geminiPayload(['label_ids' => [77]]), [
+        'vikunja.test/api/v1/labels' => Http::response([
+            ['id' => 9, 'title' => 'doma'],
+            ['id' => 77, 'title' => 'Voice'],
+        ]),
+    ]);
+    $recording = makeRecording();
+
+    (new ProcessRecording($recording->id))->handle(
+        app(App\Services\GeminiClient::class),
+        app(App\Services\VikunjaClient::class),
+        app(App\Services\Ntfy::class),
+    );
+
+    $attaches = Http::recorded(fn ($r) => str_contains($r->url(), '/tasks/42/labels'));
+    expect(count($attaches))->toBe(1);
+});
+
+it('completes when the auto label does not exist in Vikunja', function () {
+    config()->set('voice.vikunja.auto_label', 'Missing');
+    fakeApis(geminiPayload(['label_ids' => []]));
+    $recording = makeRecording();
+
+    (new ProcessRecording($recording->id))->handle(
+        app(App\Services\GeminiClient::class),
+        app(App\Services\VikunjaClient::class),
+        app(App\Services\Ntfy::class),
+    );
+
+    expect($recording->refresh()->status)->toBe('done');
+    Http::assertNotSent(fn ($r) => str_contains($r->url(), '/tasks/42/labels'));
+});
+
+it('assigns the configured user to the created task', function () {
+    config()->set('voice.vikunja.auto_assign_username', 'alex');
+    fakeApis(geminiPayload());
+    $recording = makeRecording();
+
+    (new ProcessRecording($recording->id))->handle(
+        app(App\Services\GeminiClient::class),
+        app(App\Services\VikunjaClient::class),
+        app(App\Services\Ntfy::class),
+    );
+
+    Http::assertSent(fn ($r) => $r->method() === 'PUT'
+        && str_contains($r->url(), '/tasks/42/assignees')
+        && $r->data()['user_id'] === 1);
+});
+
+it('does not assign anyone when no auto assign user is configured', function () {
+    fakeApis(geminiPayload());
+    $recording = makeRecording();
+
+    (new ProcessRecording($recording->id))->handle(
+        app(App\Services\GeminiClient::class),
+        app(App\Services\VikunjaClient::class),
+        app(App\Services\Ntfy::class),
+    );
+
+    Http::assertNotSent(fn ($r) => str_contains($r->url(), '/assignees'));
+    Http::assertNotSent(fn ($r) => str_contains($r->url(), '/api/v1/users'));
+});
+
+it('does not fail the task when assignment fails', function () {
+    config()->set('voice.vikunja.auto_assign_username', 'alex');
+    fakeApis(geminiPayload(), [
+        'vikunja.test/api/v1/tasks/42/assignees' => Http::response('', 500),
+    ]);
+    $recording = makeRecording();
+
+    (new ProcessRecording($recording->id))->handle(
+        app(App\Services\GeminiClient::class),
+        app(App\Services\VikunjaClient::class),
+        app(App\Services\Ntfy::class),
+    );
+
+    expect($recording->refresh()->status)->toBe('done');
+});
+
+it('skips assignment when the username is not found', function () {
+    config()->set('voice.vikunja.auto_assign_username', 'ghost');
+    fakeApis(geminiPayload(), [
+        'vikunja.test/api/v1/users*' => Http::response('null'),
+    ]);
+    $recording = makeRecording();
+
+    (new ProcessRecording($recording->id))->handle(
+        app(App\Services\GeminiClient::class),
+        app(App\Services\VikunjaClient::class),
+        app(App\Services\Ntfy::class),
+    );
+
+    expect($recording->refresh()->status)->toBe('done');
+    Http::assertNotSent(fn ($r) => str_contains($r->url(), '/assignees'));
 });
 
 it('skips already-done recordings', function () {

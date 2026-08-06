@@ -59,6 +59,8 @@ class ProcessRecording implements ShouldQueue
             now: $now,
         );
 
+        $task['label_ids'] = $this->withAutoLabel($task['label_ids'], $labels);
+
         $payload = [
             'title' => $task['title'],
             'description' => $this->buildDescription($task['description'], $task['transcript']),
@@ -80,6 +82,8 @@ class ProcessRecording implements ShouldQueue
             }
         }
 
+        $this->autoAssign($vikunja, $taskId);
+
         $recording->update([
             'status' => 'done',
             'transcript' => $task['transcript'],
@@ -99,6 +103,48 @@ class ProcessRecording implements ShouldQueue
         ]);
 
         app(Ntfy::class)->send('❌ Zpracování nahrávky selhalo: '.($exception?->getMessage() ?? 'unknown'));
+    }
+
+    private function withAutoLabel(array $labelIds, array $labels): array
+    {
+        $autoLabel = (string) config('voice.vikunja.auto_label');
+
+        if ($autoLabel === '') {
+            return $labelIds;
+        }
+
+        foreach ($labels as $label) {
+            if (strcasecmp($label['title'], $autoLabel) === 0) {
+                return in_array($label['id'], $labelIds, true) ? $labelIds : [...$labelIds, $label['id']];
+            }
+        }
+
+        Log::warning('Auto label not found in Vikunja', ['label' => $autoLabel]);
+
+        return $labelIds;
+    }
+
+    private function autoAssign(VikunjaClient $vikunja, int $taskId): void
+    {
+        $username = (string) config('voice.vikunja.auto_assign_username');
+
+        if ($username === '') {
+            return;
+        }
+
+        try {
+            $userId = $vikunja->findUserId($username);
+
+            if ($userId === null) {
+                Log::warning('Auto assign user not found', ['username' => $username]);
+
+                return;
+            }
+
+            $vikunja->assignUser($taskId, $userId);
+        } catch (\Throwable $e) {
+            Log::warning('Auto assign failed', ['task' => $taskId, 'username' => $username, 'error' => $e->getMessage()]);
+        }
     }
 
     private function buildDescription(string $description, string $transcript): string

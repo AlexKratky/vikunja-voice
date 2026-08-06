@@ -23,6 +23,8 @@ Vyplň v `.env`:
 | `VIKUNJA_URL` | např. `https://vikunja.example.com` |
 | `VIKUNJA_API_TOKEN` | Vikunja → Nastavení → API tokeny (práva: projects read, tasks write, labels read/write) |
 | `VIKUNJA_DEFAULT_PROJECT_ID` | ID inbox projektu (fallback) |
+| `VIKUNJA_AUTO_ASSIGN_USERNAME` | uživatel, kterému se každý úkol přiřadí (prázdné = nepřiřazovat) |
+| `VIKUNJA_AUTO_LABEL` | název štítku, který se přidá ke každému úkolu (prázdné = vypnuto) |
 | `NTFY_TOPIC` | ntfy topic pro notifikace (prázdné = vypnuto) |
 | `NTFY_URL` | ntfy server, default `https://ntfy.sh` |
 | `NTFY_NOTIFY_SUCCESS` | posílat notifikaci i při úspěchu, default `true` |

@@ -41,6 +41,24 @@ class VikunjaClient
         return $this->client()->put("/projects/{$projectId}/tasks", $payload)->throw()->json();
     }
 
+    public function findUserId(string $username): ?int
+    {
+        $users = $this->client()->get('/users', ['s' => $username])->throw()->json() ?? [];
+
+        foreach ($users as $user) {
+            if (strcasecmp((string) ($user['username'] ?? ''), $username) === 0) {
+                return (int) $user['id'];
+            }
+        }
+
+        return null;
+    }
+
+    public function assignUser(int $taskId, int $userId): void
+    {
+        $this->client()->put("/tasks/{$taskId}/assignees", ['user_id' => $userId])->throw();
+    }
+
     public function attachLabel(int $taskId, int $labelId): void
     {
         $this->client()->put("/tasks/{$taskId}/labels", ['label_id' => $labelId])->throw();
