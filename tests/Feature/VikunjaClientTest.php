@@ -27,6 +27,20 @@ it('fetches projects with auth header', function () {
     Http::assertSent(fn ($r) => $r->hasHeader('Authorization', 'Bearer vik-token'));
 });
 
+it('filters out pseudo-projects with negative ids', function () {
+    Http::fake([
+        'vikunja.test/api/v1/projects' => Http::response([
+            ['id' => 1, 'title' => 'Úkoly', 'description' => ''],
+            ['id' => -1, 'title' => 'Favorites', 'description' => ''],
+            ['id' => -2, 'title' => 'My Open Tasks', 'description' => ''],
+        ]),
+    ]);
+
+    expect((new VikunjaClient)->projects())->toBe([
+        ['id' => 1, 'title' => 'Úkoly'],
+    ]);
+});
+
 it('returns empty labels when API returns null body', function () {
     Http::fake(['vikunja.test/api/v1/labels' => Http::response('null')]);
 

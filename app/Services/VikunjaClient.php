@@ -18,10 +18,12 @@ class VikunjaClient
     {
         $projects = $this->client()->get('/projects')->throw()->json() ?? [];
 
-        return array_map(
+        // Vikunja lists pseudo-projects (Favorites, My Open Tasks, …) with
+        // negative ids; tasks cannot be created in them.
+        return array_values(array_filter(array_map(
             fn ($p) => ['id' => (int) $p['id'], 'title' => (string) $p['title']],
             $projects,
-        );
+        ), fn ($p) => $p['id'] > 0));
     }
 
     public function labels(): array
