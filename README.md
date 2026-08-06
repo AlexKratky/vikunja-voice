@@ -24,7 +24,12 @@ Vyplň v `.env`:
 | `VIKUNJA_API_TOKEN` | Vikunja → Nastavení → API tokeny (práva: projects read, tasks write, labels read/write) |
 | `VIKUNJA_DEFAULT_PROJECT_ID` | ID inbox projektu (fallback) |
 | `NTFY_TOPIC` | ntfy topic pro notifikace (prázdné = vypnuto) |
+| `NTFY_URL` | ntfy server, default `https://ntfy.sh` |
+| `NTFY_NOTIFY_SUCCESS` | posílat notifikaci i při úspěchu, default `true` |
 | `RETENTION_DAYS` | po kolika dnech mazat zpracovaná audia (default 7) |
+| `VOICE_TIMEZONE` | časová zóna pro parsování termínů, default `Europe/Prague` |
+
+Na VPS v produkci nastav v `.env` navíc `APP_ENV=production` a `APP_DEBUG=false` — s `APP_DEBUG=true` uniká stack trace (včetně API klíčů v `.env`) do chybové stránky.
 
 ## Provoz
 
@@ -46,12 +51,14 @@ WantedBy=multi-user.target
 ```
 
 - Scheduler (cron): `* * * * * cd /var/www/vikunja-voice && php artisan schedule:run >> /dev/null 2>&1`
+- `DB_QUEUE_RETRY_AFTER` (v `.env`) musí zůstat vyšší než timeout jobu (`--timeout=300` výše), jinak si ho při druhém workerovi „ukradnou" a zpracuje se duplicitně.
 
 ## Když něco selže
 
 - Po 5 neúspěšných pokusech skončí job ve `failed_jobs` a přijde ntfy notifikace. Audio zůstává na disku (failed nahrávky se nikdy nemažou).
 - Dozpracování: `php artisan queue:retry all`
 - Přehled: `php artisan queue:failed`
+- Zpracování je at-least-once: pokud worker spadne těsně po založení úkolu ve Vikunja, ale před zápisem do DB, retry může výjimečně založit duplicitní úkol — nic se ale nikdy neztratí, duplicita je vždy lepší než ztráta.
 
 ## Bezpečnostní model
 

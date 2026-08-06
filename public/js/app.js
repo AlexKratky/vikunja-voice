@@ -159,14 +159,19 @@ $('send').addEventListener('click', async () => {
     current = null;
     $('status').textContent = 'Odesílám…';
 
-    const id = await dbAdd({ blob, mime, createdAt: Date.now(), status: 'sending' });
+    let id = null;
+    try {
+        id = await dbAdd({ blob, mime, createdAt: Date.now(), status: 'sending' });
+    } catch (_) {
+        id = null;
+    }
 
     try {
         await upload(blob, mime);
-        await dbUpdate(id, { status: 'sent' });
+        if (id !== null) await dbUpdate(id, { status: 'sent' });
         $('status').textContent = 'Odesláno ✓ (zpracuje se na pozadí)';
     } catch (err) {
-        await dbUpdate(id, { status: 'error' });
+        if (id !== null) await dbUpdate(id, { status: 'error' });
         $('status').textContent = 'Chyba odeslání: ' + err.message + ' — v historii jde poslat znovu';
     }
 
