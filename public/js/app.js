@@ -216,6 +216,7 @@ const SVG_PLAY = '<svg class="icon-play" viewBox="0 0 24 24" fill="currentColor"
 const SVG_STOP = '<svg class="icon-stop" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></svg>';
 const SVG_RETRY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>';
 const SVG_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+const SVG_SHARE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>';
 
 // One shared player for history entries so plays never overlap and
 // object URLs get revoked when playback stops.
@@ -240,6 +241,40 @@ $('clear-history').addEventListener('click', async () => {
     await dbClear();
     renderHistory();
 });
+
+function shareFilename(entry) {
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const d = new Date(entry.createdAt);
+    return 'vikunja-voice-' + d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())
+        + '-' + pad2(d.getHours()) + pad2(d.getMinutes()) + '.' + extFor(entry.mime);
+}
+
+function downloadEntry(entry) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(entry.blob);
+    a.download = shareFilename(entry);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Revoke later, not immediately: the download triggered by click()
+    // reads the object URL asynchronously.
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+async function shareEntry(entry) {
+    const file = new File([entry.blob], shareFilename(entry), { type: entry.mime });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+            await navigator.share({ files: [file] });
+        } catch (err) {
+            // AbortError = user closed the share sheet; anything else
+            // (share target crashed, permission issue) falls back to download.
+            if (err.name !== 'AbortError') downloadEntry(entry);
+        }
+        return;
+    }
+    downloadEntry(entry);
+}
 
 async function renderHistory() {
     const list = $('history');
@@ -317,6 +352,14 @@ async function renderHistory() {
             });
             li.appendChild(retry);
         }
+
+        const share = document.createElement('button');
+        share.type = 'button';
+        share.className = 'icon-btn icon-btn-sm';
+        share.setAttribute('aria-label', STR.share_recording);
+        share.innerHTML = SVG_SHARE;
+        share.addEventListener('click', () => shareEntry(entry));
+        li.appendChild(share);
 
         const del = document.createElement('button');
         del.type = 'button';
