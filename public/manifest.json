@@ -1,6 +1,6 @@
 {
-    "name": "vikunja-voice",
-    "short_name": "vikunja-voice",
+    "name": "Vikunja Voice",
+    "short_name": "Vikunja Voice",
     "start_url": "/",
     "display": "standalone",
     "background_color": "#0b0d12",

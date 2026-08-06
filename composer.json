@@ -1,9 +1,9 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "laravel/laravel",
+    "name": "alexkratky/vikunja-voice",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
-    "keywords": ["laravel", "framework"],
+    "description": "Voice-to-task for self-hosted Vikunja: dictate a note in a PWA, Gemini extracts a structured task, created via the Vikunja API.",
+    "keywords": ["vikunja", "voice", "gemini", "pwa", "laravel"],
     "license": "MIT",
     "require": {
         "php": "^8.4",
