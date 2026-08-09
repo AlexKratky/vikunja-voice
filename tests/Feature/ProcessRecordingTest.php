@@ -92,7 +92,8 @@ it('processes a recording end to end', function () {
         && $r->data()['label_id'] === 9);
 
     Http::assertSent(fn ($r) => str_contains($r->url(), 'ntfy.test/topic')
-        && str_contains($r->body(), 'Nakoupit mléko'));
+        && str_contains($r->body(), 'Nakoupit mléko')
+        && $r->header('X-Click') === ['https://vikunja.test/tasks/42']);
 });
 
 it('falls back to default project for unknown project id', function () {

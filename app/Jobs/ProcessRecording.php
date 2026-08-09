@@ -91,7 +91,7 @@ class ProcessRecording implements ShouldQueue
         ]);
 
         if (config('voice.ntfy.notify_success')) {
-            $ntfy->send("✅ {$task['title']}");
+            $ntfy->send("✅ {$task['title']}", config('voice.vikunja.url')."/tasks/{$taskId}");
         }
     }
 

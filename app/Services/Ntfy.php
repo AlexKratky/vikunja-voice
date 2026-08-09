@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Log;
 
 class Ntfy
 {
-    public function send(string $message): void
+    public function send(string $message, ?string $clickUrl = null): void
     {
         $topic = (string) config('voice.ntfy.topic');
 
@@ -17,6 +17,7 @@ class Ntfy
 
         try {
             Http::timeout(10)
+                ->withHeaders($clickUrl !== null ? ['X-Click' => $clickUrl] : [])
                 ->withBody($message, 'text/plain; charset=utf-8')
                 ->post(config('voice.ntfy.url').'/'.$topic)
                 ->throw();
