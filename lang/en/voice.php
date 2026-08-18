@@ -40,6 +40,8 @@ return [
         'stop_playback' => 'Stop playback',
         'play' => 'Play',
         'pause' => 'Pause',
+        'playback_speed' => 'Playback speed',
+        'seek' => 'Position in recording',
         'record' => 'Record',
         'stop_recording' => 'Stop recording',
         'share_recording' => 'Share recording',

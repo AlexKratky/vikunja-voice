@@ -549,6 +549,54 @@ async function renderHistory() {
     }
 }
 
+// ---------- shared player helpers ----------
+const PLAYBACK_RATES = [1, 1.25, 1.5, 2];
+
+function fmtTime(s) {
+    if (!Number.isFinite(s) || s < 0) s = 0;
+    return Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+}
+
+function savedRate() {
+    const r = parseFloat(localStorage.getItem('vv_rate'));
+    return PLAYBACK_RATES.includes(r) ? r : 1;
+}
+
+function rateLabel(r) {
+    return r + '×';
+}
+
+// Cycles 1× → 1.25× → 1.5× → 2× → 1×, persists the choice, and applies it
+// to whatever audio element getAudio() currently returns (null = none).
+function initRateButton(btn, getAudio) {
+    btn.textContent = rateLabel(savedRate());
+    btn.addEventListener('click', () => {
+        const next = PLAYBACK_RATES[(PLAYBACK_RATES.indexOf(savedRate()) + 1) % PLAYBACK_RATES.length];
+        localStorage.setItem('vv_rate', String(next));
+        btn.textContent = rateLabel(next);
+        const audio = getAudio();
+        if (audio) audio.playbackRate = next;
+    });
+}
+
+// Chrome reports Infinity for fresh MediaRecorder blobs; seeking far past
+// the end forces the real duration to be computed. Calls cb once known.
+function resolveDuration(audio, cb) {
+    if (Number.isFinite(audio.duration) && audio.duration > 0) {
+        cb(audio.duration);
+        return;
+    }
+    const probe = () => {
+        if (Number.isFinite(audio.duration) && audio.duration > 0) {
+            audio.removeEventListener('durationchange', probe);
+            audio.currentTime = 0;
+            cb(audio.duration);
+        }
+    };
+    audio.addEventListener('durationchange', probe);
+    audio.currentTime = 1e7;
+}
+
 // ---------- presentation: preview player ----------
 // Minimal custom player over the (controls-less) #preview-audio element.
 (() => {
@@ -557,11 +605,6 @@ async function renderHistory() {
     const seek = $('player-seek');
     const time = $('player-time');
     let duration = 0;
-
-    const fmt = (s) => {
-        if (!Number.isFinite(s) || s < 0) s = 0;
-        return Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
-    };
 
     const setPlaying = (playing) => {
         toggle.classList.toggle('playing', playing);
@@ -572,30 +615,19 @@ async function renderHistory() {
         const pct = duration > 0 ? Math.min(100, (audio.currentTime / duration) * 100) : 0;
         seek.value = String(pct);
         seek.style.setProperty('--fill', pct + '%');
-        time.textContent = fmt(duration > 0 ? audio.currentTime : 0) + ' / ' + fmt(duration);
+        time.textContent = fmtTime(duration > 0 ? audio.currentTime : 0) + ' / ' + fmtTime(duration);
     };
 
     audio.addEventListener('loadedmetadata', () => {
         setPlaying(false);
-        if (Number.isFinite(audio.duration)) {
-            duration = audio.duration;
+        duration = 0;
+        render();
+        audio.playbackRate = savedRate();
+        $('player-rate').textContent = rateLabel(savedRate());
+        resolveDuration(audio, (d) => {
+            duration = d;
             render();
-        } else {
-            // Chrome reports Infinity for fresh MediaRecorder blobs; seeking
-            // far past the end forces the real duration to be computed.
-            duration = 0;
-            render();
-            const probe = () => {
-                if (Number.isFinite(audio.duration) && audio.duration > 0) {
-                    audio.removeEventListener('durationchange', probe);
-                    duration = audio.duration;
-                    audio.currentTime = 0;
-                    render();
-                }
-            };
-            audio.addEventListener('durationchange', probe);
-            audio.currentTime = 1e7;
-        }
+        });
     });
 
     audio.addEventListener('timeupdate', () => { if (duration > 0) render(); });
@@ -623,6 +655,8 @@ async function renderHistory() {
     new MutationObserver(() => {
         if ($('preview').hidden && !audio.paused) audio.pause();
     }).observe($('preview'), { attributes: true, attributeFilter: ['hidden'] });
+
+    initRateButton($('player-rate'), () => audio);
 })();
 
 // ---------- init ----------

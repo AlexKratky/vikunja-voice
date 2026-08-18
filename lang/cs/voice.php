@@ -37,6 +37,8 @@ return [
         'stop_playback' => 'Zastavit přehrávání',
         'play' => 'Přehrát',
         'pause' => 'Pozastavit',
+        'playback_speed' => 'Rychlost přehrávání',
+        'seek' => 'Pozice v nahrávce',
         'record' => 'Nahrávat',
         'stop_recording' => 'Zastavit nahrávání',
         'share_recording' => 'Sdílet nahrávku',

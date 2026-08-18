@@ -51,8 +51,9 @@
                         <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M8 5.14v13.72L19 12z"/></svg>
                         <svg class="icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z"/></svg>
                     </button>
-                    <input id="player-seek" type="range" min="0" max="100" step="0.1" value="0" aria-label="{{ __('voice.ui.seek') }}">
+                    <input id="player-seek" class="seek" type="range" min="0" max="100" step="0.1" value="0" aria-label="{{ __('voice.ui.seek') }}">
                     <span id="player-time">0:00 / 0:00</span>
+                    <button id="player-rate" class="rate-btn" type="button" aria-label="{{ __('voice.js.playback_speed') }}">1×</button>
                     <audio id="preview-audio"></audio>
                 </div>
                 <div class="preview-actions">
