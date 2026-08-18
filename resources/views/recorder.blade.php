@@ -30,6 +30,10 @@
         </section>
 
         <section id="recorder-section" class="card card-recorder" hidden>
+            <div id="rec-live" hidden>
+                <p id="rec-timer">0:00.0</p>
+                <canvas id="rec-wave" aria-hidden="true"></canvas>
+            </div>
             <button id="record" type="button" aria-label="{{ __('voice.js.record') }}">
                 <svg class="icon-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
                 <svg class="icon-stop" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></svg>

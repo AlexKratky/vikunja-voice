@@ -116,6 +116,108 @@ function extFor(mime) {
     return 'bin';
 }
 
+// ---------- live recording timer + waveform ----------
+const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const WAVE_BAR_W = 3;      // css px
+const WAVE_BAR_GAP = 2;    // css px
+const WAVE_SAMPLE_MS = 50; // one new bar per 50ms
+
+const recLive = { raf: 0, audioCtx: null, analyser: null, startedAt: 0, lastBarAt: 0, bars: [], waveColor: '#e5484d' };
+
+function fmtRecTimer(ms) {
+    const total = Math.floor(ms / 1000);
+    const base = Math.floor(total / 60) + ':' + String(total % 60).padStart(2, '0');
+    // Reduced motion: whole seconds only, no waveform.
+    if (REDUCED_MOTION) return base;
+    return base + '.' + Math.floor((ms % 1000) / 100);
+}
+
+function startRecLive(stream) {
+    recLive.startedAt = performance.now();
+    recLive.lastBarAt = 0;
+    recLive.bars = [];
+    $('rec-timer').textContent = REDUCED_MOTION ? '0:00' : '0:00.0';
+    $('rec-live').hidden = false;
+
+    const canvas = $('rec-wave');
+    canvas.hidden = REDUCED_MOTION;
+    if (!REDUCED_MOTION) {
+        try {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            recLive.audioCtx = new AC();
+            recLive.analyser = recLive.audioCtx.createAnalyser();
+            recLive.analyser.fftSize = 256;
+            recLive.audioCtx.createMediaStreamSource(stream).connect(recLive.analyser);
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = Math.round(rect.width * dpr);
+            canvas.height = Math.round(rect.height * dpr);
+            recLive.waveColor = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#e5484d';
+        } catch (_) {
+            // Waveform is progressive enhancement; the timer works without it.
+            recLive.analyser = null;
+            canvas.hidden = true;
+        }
+    }
+
+    const tick = () => {
+        $('rec-timer').textContent = fmtRecTimer(performance.now() - recLive.startedAt);
+        if (recLive.analyser) drawRecWave();
+        recLive.raf = requestAnimationFrame(tick);
+    };
+    recLive.raf = requestAnimationFrame(tick);
+}
+
+function stopRecLive() {
+    cancelAnimationFrame(recLive.raf);
+    recLive.raf = 0;
+    if (recLive.audioCtx) {
+        recLive.audioCtx.close();
+        recLive.audioCtx = null;
+    }
+    recLive.analyser = null;
+    recLive.bars = [];
+    $('rec-live').hidden = true;
+}
+
+function drawRecWave() {
+    const canvas = $('rec-wave');
+    const g = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const step = (WAVE_BAR_W + WAVE_BAR_GAP) * dpr;
+    const now = performance.now();
+
+    if (now - recLive.lastBarAt >= WAVE_SAMPLE_MS) {
+        recLive.lastBarAt = now;
+        const data = new Uint8Array(recLive.analyser.fftSize);
+        recLive.analyser.getByteTimeDomainData(data);
+        let peak = 0;
+        for (const v of data) {
+            const amp = Math.abs(v - 128) / 128;
+            if (amp > peak) peak = amp;
+        }
+        recLive.bars.push(peak);
+        const cap = Math.ceil(canvas.width / step);
+        if (recLive.bars.length > cap) recLive.bars.splice(0, recLive.bars.length - cap);
+    }
+
+    g.clearRect(0, 0, canvas.width, canvas.height);
+    g.fillStyle = recLive.waveColor;
+    const mid = canvas.height / 2;
+    for (let i = 0; i < recLive.bars.length; i++) {
+        const h = Math.max(2 * dpr, recLive.bars[recLive.bars.length - 1 - i] * canvas.height * 0.9);
+        const x = canvas.width - (i + 1) * step;
+        if (x + WAVE_BAR_W * dpr < 0) break;
+        if (g.roundRect) {
+            g.beginPath();
+            g.roundRect(x, mid - h / 2, WAVE_BAR_W * dpr, h, (WAVE_BAR_W * dpr) / 2);
+            g.fill();
+        } else {
+            g.fillRect(x, mid - h / 2, WAVE_BAR_W * dpr, h);
+        }
+    }
+}
+
 // MIME types the backend RecordingController accepts. Keep in sync.
 const ACCEPTED_MIMES = {
     'audio/webm': true,
@@ -182,6 +284,7 @@ $('record').addEventListener('click', async () => {
 
         recorder.ondataavailable = (e) => recChunks.push(e.data);
         recorder.onstop = () => {
+            stopRecLive();
             stream.getTracks().forEach((t) => t.stop());
             const type = (recorder.mimeType || 'audio/webm').split(';')[0];
             showPreview(new Blob(recChunks, { type }), type);
@@ -191,6 +294,7 @@ $('record').addEventListener('click', async () => {
         };
 
         recorder.start();
+        startRecLive(stream);
         $('record').classList.add('recording');
         $('preview').hidden = true;
         $('import').disabled = true;
