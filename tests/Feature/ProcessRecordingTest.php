@@ -2,8 +2,16 @@
 
 use App\Jobs\ProcessRecording;
 use App\Models\Recording;
+use App\Services\GeminiClient;
+use App\Services\Ntfy;
+use App\Services\VikunjaClient;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Sentry\Event;
+use Sentry\SentrySdk;
+use Sentry\State\Hub;
+use Sentry\State\HubInterface;
+use Sentry\State\Scope;
 
 beforeEach(function () {
     config()->set('voice.vikunja.url', 'https://vikunja.test');
@@ -18,6 +26,10 @@ beforeEach(function () {
     config()->set('voice.vikunja.auto_label', null);
 
     Storage::fake('local');
+});
+
+afterEach(function () {
+    SentrySdk::setCurrentHub(new Hub);
 });
 
 function makeRecording(): Recording
@@ -65,9 +77,9 @@ it('processes a recording end to end', function () {
     $recording = makeRecording();
 
     (new ProcessRecording($recording->id))->handle(
-        app(App\Services\GeminiClient::class),
-        app(App\Services\VikunjaClient::class),
-        app(App\Services\Ntfy::class),
+        app(GeminiClient::class),
+        app(VikunjaClient::class),
+        app(Ntfy::class),
     );
 
     $recording->refresh();
@@ -101,9 +113,9 @@ it('falls back to default project for unknown project id', function () {
     $recording = makeRecording();
 
     (new ProcessRecording($recording->id))->handle(
-        app(App\Services\GeminiClient::class),
-        app(App\Services\VikunjaClient::class),
-        app(App\Services\Ntfy::class),
+        app(GeminiClient::class),
+        app(VikunjaClient::class),
+        app(Ntfy::class),
     );
 
     Http::assertSent(fn ($r) => $r->method() === 'PUT'
@@ -115,9 +127,9 @@ it('omits due_date when null', function () {
     $recording = makeRecording();
 
     (new ProcessRecording($recording->id))->handle(
-        app(App\Services\GeminiClient::class),
-        app(App\Services\VikunjaClient::class),
-        app(App\Services\Ntfy::class),
+        app(GeminiClient::class),
+        app(VikunjaClient::class),
+        app(Ntfy::class),
     );
 
     Http::assertSent(fn ($r) => $r->method() === 'PUT'
@@ -130,9 +142,9 @@ it('propagates Gemini failures so the queue retries', function () {
     $recording = makeRecording();
 
     expect(fn () => (new ProcessRecording($recording->id))->handle(
-        app(App\Services\GeminiClient::class),
-        app(App\Services\VikunjaClient::class),
-        app(App\Services\Ntfy::class),
+        app(GeminiClient::class),
+        app(VikunjaClient::class),
+        app(Ntfy::class),
     ))->toThrow(RuntimeException::class);
 
     expect($recording->refresh()->status)->toBe('processing');
@@ -143,9 +155,9 @@ it('does not fail the task when label attach fails', function () {
     $recording = makeRecording();
 
     (new ProcessRecording($recording->id))->handle(
-        app(App\Services\GeminiClient::class),
-        app(App\Services\VikunjaClient::class),
-        app(App\Services\Ntfy::class),
+        app(GeminiClient::class),
+        app(VikunjaClient::class),
+        app(Ntfy::class),
     );
 
     expect($recording->refresh()->status)->toBe('done');
@@ -162,9 +174,9 @@ it('attaches the auto label case-insensitively beside extracted ones', function 
     $recording = makeRecording();
 
     (new ProcessRecording($recording->id))->handle(
-        app(App\Services\GeminiClient::class),
-        app(App\Services\VikunjaClient::class),
-        app(App\Services\Ntfy::class),
+        app(GeminiClient::class),
+        app(VikunjaClient::class),
+        app(Ntfy::class),
     );
 
     Http::assertSent(fn ($r) => str_contains($r->url(), '/tasks/42/labels') && $r->data()['label_id'] === 9);
@@ -182,9 +194,9 @@ it('does not attach the auto label twice when already extracted', function () {
     $recording = makeRecording();
 
     (new ProcessRecording($recording->id))->handle(
-        app(App\Services\GeminiClient::class),
-        app(App\Services\VikunjaClient::class),
-        app(App\Services\Ntfy::class),
+        app(GeminiClient::class),
+        app(VikunjaClient::class),
+        app(Ntfy::class),
     );
 
     $attaches = Http::recorded(fn ($r) => str_contains($r->url(), '/tasks/42/labels'));
@@ -197,9 +209,9 @@ it('completes when the auto label does not exist in Vikunja', function () {
     $recording = makeRecording();
 
     (new ProcessRecording($recording->id))->handle(
-        app(App\Services\GeminiClient::class),
-        app(App\Services\VikunjaClient::class),
-        app(App\Services\Ntfy::class),
+        app(GeminiClient::class),
+        app(VikunjaClient::class),
+        app(Ntfy::class),
     );
 
     expect($recording->refresh()->status)->toBe('done');
@@ -212,9 +224,9 @@ it('assigns the configured user to the created task', function () {
     $recording = makeRecording();
 
     (new ProcessRecording($recording->id))->handle(
-        app(App\Services\GeminiClient::class),
-        app(App\Services\VikunjaClient::class),
-        app(App\Services\Ntfy::class),
+        app(GeminiClient::class),
+        app(VikunjaClient::class),
+        app(Ntfy::class),
     );
 
     Http::assertSent(fn ($r) => $r->method() === 'PUT'
@@ -227,9 +239,9 @@ it('does not assign anyone when no auto assign user is configured', function () 
     $recording = makeRecording();
 
     (new ProcessRecording($recording->id))->handle(
-        app(App\Services\GeminiClient::class),
-        app(App\Services\VikunjaClient::class),
-        app(App\Services\Ntfy::class),
+        app(GeminiClient::class),
+        app(VikunjaClient::class),
+        app(Ntfy::class),
     );
 
     Http::assertNotSent(fn ($r) => str_contains($r->url(), '/assignees'));
@@ -244,9 +256,9 @@ it('does not fail the task when assignment fails', function () {
     $recording = makeRecording();
 
     (new ProcessRecording($recording->id))->handle(
-        app(App\Services\GeminiClient::class),
-        app(App\Services\VikunjaClient::class),
-        app(App\Services\Ntfy::class),
+        app(GeminiClient::class),
+        app(VikunjaClient::class),
+        app(Ntfy::class),
     );
 
     expect($recording->refresh()->status)->toBe('done');
@@ -260,9 +272,9 @@ it('skips assignment when the username is not found', function () {
     $recording = makeRecording();
 
     (new ProcessRecording($recording->id))->handle(
-        app(App\Services\GeminiClient::class),
-        app(App\Services\VikunjaClient::class),
-        app(App\Services\Ntfy::class),
+        app(GeminiClient::class),
+        app(VikunjaClient::class),
+        app(Ntfy::class),
     );
 
     expect($recording->refresh()->status)->toBe('done');
@@ -274,9 +286,9 @@ it('skips already-done recordings', function () {
     $recording = Recording::factory()->create(['status' => 'done']);
 
     (new ProcessRecording($recording->id))->handle(
-        app(App\Services\GeminiClient::class),
-        app(App\Services\VikunjaClient::class),
-        app(App\Services\Ntfy::class),
+        app(GeminiClient::class),
+        app(VikunjaClient::class),
+        app(Ntfy::class),
     );
 
     Http::assertNothingSent();
@@ -312,9 +324,9 @@ it('labels the transcript in English by default', function () {
     $recording = makeRecording();
 
     (new ProcessRecording($recording->id))->handle(
-        app(App\Services\GeminiClient::class),
-        app(App\Services\VikunjaClient::class),
-        app(App\Services\Ntfy::class),
+        app(GeminiClient::class),
+        app(VikunjaClient::class),
+        app(Ntfy::class),
     );
 
     Http::assertSent(fn ($r) => $r->method() === 'PUT'
@@ -328,12 +340,67 @@ it('labels the transcript in Czech when locale is cs', function () {
     $recording = makeRecording();
 
     (new ProcessRecording($recording->id))->handle(
-        app(App\Services\GeminiClient::class),
-        app(App\Services\VikunjaClient::class),
-        app(App\Services\Ntfy::class),
+        app(GeminiClient::class),
+        app(VikunjaClient::class),
+        app(Ntfy::class),
     );
 
     Http::assertSent(fn ($r) => $r->method() === 'PUT'
         && str_contains($r->url(), '/projects/5/tasks')
         && str_contains($r->data()['description'], 'Přepis:'));
+});
+
+function fakeSentryHub(Scope $scope, &$captured): void
+{
+    // Ignore unrelated hub calls (sentry-laravel probes getClient() on app
+    // terminate); only withScope/captureException carry expectations.
+    $hub = Mockery::mock(HubInterface::class)->shouldIgnoreMissing();
+    $hub->shouldReceive('withScope')->once()->andReturnUsing(fn (callable $cb) => $cb($scope));
+    $hub->shouldReceive('captureException')->once()->andReturnUsing(function ($e) use (&$captured) {
+        $captured = $e;
+
+        return null;
+    });
+    SentrySdk::setCurrentHub($hub);
+}
+
+it('captures a fatal terminal-failure event in Sentry when all attempts are exhausted', function () {
+    Http::fake(['ntfy.test/*' => Http::response('')]);
+    $recording = makeRecording();
+
+    $exception = new RuntimeException('Gemini API error: HTTP 500');
+    $scope = new Scope;
+    $captured = null;
+    fakeSentryHub($scope, $captured);
+
+    (new ProcessRecording($recording->id))->failed($exception);
+
+    expect($captured)->toBe($exception);
+
+    $event = $scope->applyToEvent(Event::createEvent());
+    expect($event->getTags())->toMatchArray([
+        'job' => 'process_recording',
+        'terminal_failure' => 'true',
+    ])
+        ->and((string) $event->getLevel())->toBe('fatal')
+        ->and($event->getContexts()['recording']['id'])->toBe($recording->id)
+        ->and($event->getContexts()['recording']['error'])->toBe('Gemini API error: HTTP 500');
+
+    // Existing side effects still happen.
+    expect($recording->refresh()->status)->toBe('failed');
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'ntfy.test/topic'));
+});
+
+it('captures a fallback exception when failed() receives null', function () {
+    Http::fake(['ntfy.test/*' => Http::response('')]);
+    $recording = makeRecording();
+
+    $scope = new Scope;
+    $captured = null;
+    fakeSentryHub($scope, $captured);
+
+    (new ProcessRecording($recording->id))->failed(null);
+
+    expect($captured)->toBeInstanceOf(RuntimeException::class)
+        ->and($captured->getMessage())->toBe('ProcessRecording failed without exception');
 });

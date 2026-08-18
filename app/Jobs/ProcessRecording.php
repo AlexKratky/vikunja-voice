@@ -11,6 +11,8 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Sentry\Severity;
+use Sentry\State\Scope;
 
 class ProcessRecording implements ShouldQueue
 {
@@ -20,9 +22,7 @@ class ProcessRecording implements ShouldQueue
 
     public int $timeout = 300;
 
-    public function __construct(public string $recordingId)
-    {
-    }
+    public function __construct(public string $recordingId) {}
 
     public function backoff(): array
     {
@@ -97,12 +97,28 @@ class ProcessRecording implements ShouldQueue
 
     public function failed(?\Throwable $exception): void
     {
+        $error = $exception?->getMessage() ?? 'unknown';
+
         Recording::where('id', $this->recordingId)->update([
             'status' => 'failed',
-            'error' => $exception?->getMessage() ?? 'unknown',
+            'error' => $error,
         ]);
 
-        app(Ntfy::class)->send('❌ '.__('voice.processing_failed', locale: config('voice.locale')).': '.($exception?->getMessage() ?? 'unknown'));
+        // Every attempt's exception already reaches Sentry via the standard
+        // handler; this distinct fatal event fires only when all retries are
+        // exhausted, so alert rules can target terminal_failure alone.
+        \Sentry\withScope(function (Scope $scope) use ($exception, $error): void {
+            $scope->setLevel(Severity::fatal());
+            $scope->setTag('job', 'process_recording');
+            $scope->setTag('terminal_failure', 'true');
+            $scope->setContext('recording', [
+                'id' => $this->recordingId,
+                'error' => $error,
+            ]);
+            \Sentry\captureException($exception ?? new \RuntimeException('ProcessRecording failed without exception'));
+        });
+
+        app(Ntfy::class)->send('❌ '.__('voice.processing_failed', locale: config('voice.locale')).': '.$error);
     }
 
     private function withAutoLabel(array $labelIds, array $labels): array
