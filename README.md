@@ -76,6 +76,7 @@ Then fill in `.env`:
 | `NTFY_NOTIFY_SUCCESS` | also notify on success, default `true` |
 | `RETENTION_DAYS` | days after which processed audio is deleted (default 7) |
 | `VOICE_TIMEZONE` | timezone for due-date parsing, default `Europe/Prague` |
+| `SENTRY_LARAVEL_DSN` | Sentry DSN for backend error reporting (empty = off). A recording that exhausts all 5 processing attempts is reported as a `fatal` event tagged `terminal_failure: true` — point a Sentry alert rule at that tag. |
 
 Run the dev stack with `php artisan serve` plus `php artisan queue:work`; tests with `php artisan test`.
 
