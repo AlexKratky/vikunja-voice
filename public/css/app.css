@@ -539,6 +539,29 @@ button { font: inherit; }
     flex: none;
 }
 
+#history .entry.expanded { flex-wrap: wrap; }
+
+.entry-player {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding-top: 0.15rem;
+}
+
+.entry-player-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+}
+
+.entry-player-time {
+    font-size: 0.82rem;
+    color: var(--text-2);
+    font-variant-numeric: tabular-nums;
+}
+
 #history .empty {
     text-align: center;
     color: var(--text-3);
@@ -570,9 +593,9 @@ button { font: inherit; }
 
 .icon-btn svg { width: 0.95rem; height: 0.95rem; }
 .icon-btn .icon-play { margin-left: 0.08rem; } /* optical centering */
-.icon-btn .icon-stop,
+.icon-btn .icon-pause,
 .icon-btn.playing .icon-play { display: none; }
-.icon-btn.playing .icon-stop { display: block; }
+.icon-btn.playing .icon-pause { display: block; }
 
 .icon-btn.playing { border-color: rgba(229, 72, 77, 0.5); color: var(--accent-hi); }
 
@@ -705,6 +728,10 @@ button { font: inherit; }
         grid-row: 2;
         width: 100%;
     }
+
+    /* Expanded player sits between the meta row and the action row. */
+    #history .entry > .entry-player { grid-column: 1 / -1; grid-row: 2; }
+    #history .entry.expanded > .entry-actions { grid-row: 3; }
 
     .btn-retry {
         flex: 1;

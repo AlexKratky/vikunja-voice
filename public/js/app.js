@@ -379,15 +379,18 @@ $('send').addEventListener('click', async () => {
 
 // ---------- history ----------
 const SVG_PLAY = '<svg class="icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M8 5.14v13.72L19 12z"/></svg>';
-const SVG_STOP = '<svg class="icon-stop" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></svg>';
+const SVG_PAUSE = '<svg class="icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z"/></svg>';
 const SVG_RETRY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>';
 const SVG_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
 const SVG_SHARE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>';
 
-// One shared player for history entries so plays never overlap and
-// object URLs get revoked when playback stops.
+// One shared player for history entries so plays never overlap and object
+// URLs get revoked when playback stops. The expanded panel (seek + times +
+// rate) lives under whichever entry is active.
 let historyAudio = null;
 let historyPlayBtn = null;
+let historyEntryLi = null;
+let historyPanel = null;
 
 function stopHistoryPlayback() {
     if (historyAudio) {
@@ -400,6 +403,96 @@ function stopHistoryPlayback() {
         historyPlayBtn.setAttribute('aria-label', STR.play_recording);
         historyPlayBtn = null;
     }
+    if (historyPanel) {
+        historyPanel.remove();
+        historyPanel = null;
+    }
+    if (historyEntryLi) {
+        historyEntryLi.classList.remove('expanded');
+        historyEntryLi = null;
+    }
+}
+
+function openEntryPlayer(li, entry, playBtn) {
+    const audio = new Audio(URL.createObjectURL(entry.blob));
+    historyAudio = audio;
+    historyPlayBtn = playBtn;
+    historyEntryLi = li;
+    li.classList.add('expanded');
+
+    const root = document.createElement('div');
+    root.className = 'entry-player';
+
+    const seek = document.createElement('input');
+    seek.type = 'range';
+    seek.className = 'seek';
+    seek.min = '0';
+    seek.max = '100';
+    seek.step = '0.1';
+    seek.value = '0';
+    seek.setAttribute('aria-label', STR.seek);
+    root.appendChild(seek);
+
+    const row = document.createElement('div');
+    row.className = 'entry-player-row';
+
+    const time = document.createElement('span');
+    time.className = 'entry-player-time';
+    time.textContent = '0:00 / 0:00';
+    row.appendChild(time);
+
+    const rate = document.createElement('button');
+    rate.type = 'button';
+    rate.className = 'rate-btn';
+    rate.setAttribute('aria-label', STR.playback_speed);
+    initRateButton(rate, () => (historyAudio === audio ? audio : null));
+    row.appendChild(rate);
+
+    root.appendChild(row);
+    li.appendChild(root);
+    historyPanel = root;
+
+    let duration = 0;
+    const render = () => {
+        const pct = duration > 0 ? Math.min(100, (audio.currentTime / duration) * 100) : 0;
+        seek.value = String(pct);
+        seek.style.setProperty('--fill', pct + '%');
+        time.textContent = fmtTime(duration > 0 ? audio.currentTime : 0) + ' / ' + fmtTime(duration);
+    };
+    render();
+
+    const setPaused = (paused) => {
+        playBtn.classList.toggle('playing', !paused);
+        playBtn.setAttribute('aria-label', paused ? STR.play_recording : STR.pause);
+    };
+
+    audio.addEventListener('loadedmetadata', () => {
+        audio.playbackRate = savedRate();
+        resolveDuration(audio, (d) => {
+            duration = d;
+            render();
+            audio.play();
+        });
+    });
+    audio.addEventListener('timeupdate', () => { if (duration > 0) render(); });
+    audio.addEventListener('play', () => setPaused(false));
+    audio.addEventListener('pause', () => setPaused(true));
+    audio.addEventListener('ended', () => {
+        audio.currentTime = 0;
+        render();
+    });
+    audio.addEventListener('error', stopHistoryPlayback);
+
+    seek.addEventListener('input', () => {
+        if (duration > 0) {
+            audio.currentTime = (Number(seek.value) / 100) * duration;
+            render();
+        } else {
+            seek.value = '0';
+        }
+    });
+
+    setPaused(false); // optimistic; the play/pause events keep it in sync
 }
 
 $('clear-history').addEventListener('click', async () => {
@@ -466,19 +559,16 @@ async function renderHistory() {
         play.type = 'button';
         play.className = 'icon-btn';
         play.setAttribute('aria-label', STR.play_recording);
-        play.innerHTML = SVG_PLAY + SVG_STOP;
+        play.innerHTML = SVG_PLAY + SVG_PAUSE;
         play.addEventListener('click', () => {
-            if (historyPlayBtn === play) {
-                stopHistoryPlayback();
+            if (historyPlayBtn === play && historyAudio) {
+                // Same entry: toggle play/pause; the panel stays open.
+                if (historyAudio.paused) historyAudio.play();
+                else historyAudio.pause();
                 return;
             }
             stopHistoryPlayback();
-            historyAudio = new Audio(URL.createObjectURL(entry.blob));
-            historyAudio.addEventListener('ended', stopHistoryPlayback);
-            historyPlayBtn = play;
-            play.classList.add('playing');
-            play.setAttribute('aria-label', STR.stop_playback);
-            historyAudio.play();
+            openEntryPlayer(li, entry, play);
         });
         li.appendChild(play);
 
