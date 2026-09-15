@@ -1,4 +1,4 @@
-const CACHE = 'vv-v9';
+const CACHE = 'vv-v10';
 const ASSETS = ['/', '/css/app.css', '/js/app.js', '/manifest.json'];
 
 // Web Share Target hand-off: the shared file is parked here between the

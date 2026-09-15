@@ -102,7 +102,7 @@ async function dbClear() {
 
 // ---------- recording ----------
 let mediaRecorder = null;
-let current = null; // { blob, mime, createdAt }
+let current = null; // { blob, mime, createdAt, id, persist }
 
 function pickMime() {
     for (const m of ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']) {
@@ -257,7 +257,17 @@ function mimeFromFile(file) {
 }
 
 function showPreview(blob, mime) {
-    current = { blob, mime, createdAt: Date.now() };
+    const createdAt = Date.now();
+    const entry = { blob, mime, createdAt, id: null, persist: null };
+    // Persist as 'unsent' right away so the recording survives the app being
+    // closed or killed before Send is tapped — it must never just disappear.
+    // entry.persist lets the send/discard handlers wait for the row to exist
+    // (a fast tap would otherwise race dbAdd). dbAdd gets a plain literal, not
+    // `entry`: a Promise isn't structured-cloneable.
+    entry.persist = dbAdd({ blob, mime, createdAt, status: 'unsent' })
+        .then((id) => { entry.id = id; renderHistory(); return id; })
+        .catch(() => null); // private mode etc.: fall back to in-memory only, as before
+    current = entry;
     const audio = $('preview-audio');
     const prev = audio.src;
     audio.src = URL.createObjectURL(blob);
@@ -334,11 +344,31 @@ $('import-audio').addEventListener('change', () => {
     if (file) importFile(file);
 });
 
-$('discard').addEventListener('click', () => {
+$('discard').addEventListener('click', async () => {
+    const entry = current;
     current = null;
     $('preview').hidden = true;
     setStatus('ready', STR.ready);
+    // Explicit discard is the one case where the persisted row should go.
+    if (entry) {
+        const id = await entry.persist;
+        if (id !== null) {
+            await dbDelete(id);
+            renderHistory();
+        }
+    }
 });
+
+// If `id` is the entry currently open in the preview, close the preview and
+// clear `current` — history and preview must never disagree about the same
+// row (e.g. it was sent or deleted from the history list instead).
+function closePreviewIfCurrent(id) {
+    if (current && current.id === id) {
+        current = null;
+        $('preview').hidden = true;
+        setStatus('ready', STR.ready);
+    }
+}
 
 $('share-preview').addEventListener('click', () => {
     if (current) shareEntry(current);
@@ -370,17 +400,25 @@ async function upload(blob, mime) {
 
 $('send').addEventListener('click', async () => {
     if (!current) return;
-    const { blob, mime, createdAt } = current;
+    const entry = current;
+    const { blob, mime, createdAt } = entry;
 
     $('preview').hidden = true;
     current = null;
     setStatus('sending', STR.sending);
 
-    let id = null;
-    try {
-        id = await dbAdd({ blob, mime, createdAt, status: 'sending' });
-    } catch (_) {
-        id = null;
+    // Wait for the 'unsent' row from showPreview before flipping its status.
+    let id = await entry.persist;
+    if (id !== null) {
+        await dbUpdate(id, { status: 'sending' });
+    } else {
+        // showPreview's dbAdd failed (e.g. private browsing): create the row
+        // here instead, exactly as before recordings were persisted early.
+        try {
+            id = await dbAdd({ blob, mime, createdAt, status: 'sending' });
+        } catch (_) {
+            id = null;
+        }
     }
 
     try {
@@ -517,6 +555,12 @@ function openEntryPlayer(li, entry, playBtn) {
 $('clear-history').addEventListener('click', async () => {
     if (!confirm(STR.confirm_delete_all)) return;
     await dbClear();
+    // The preview's row is gone too, so the preview can't stay open.
+    if (current) {
+        current = null;
+        $('preview').hidden = true;
+        setStatus('ready', STR.ready);
+    }
     renderHistory();
 });
 
@@ -607,8 +651,9 @@ async function renderHistory() {
         meta.appendChild(time);
 
         const badge = document.createElement('span');
-        badge.className = entry.status === 'sent' ? 'badge ok' : 'badge err';
-        badge.textContent = entry.status === 'sent' ? STR.badge_sent : STR.badge_error;
+        const unsent = entry.status === 'unsent';
+        badge.className = entry.status === 'sent' ? 'badge ok' : unsent ? 'badge warn' : 'badge err';
+        badge.textContent = entry.status === 'sent' ? STR.badge_sent : unsent ? STR.badge_unsent : STR.badge_error;
         meta.appendChild(badge);
 
         li.appendChild(meta);
@@ -620,15 +665,16 @@ async function renderHistory() {
         retry.type = 'button';
         retry.className = 'btn btn-ghost btn-retry';
         retry.innerHTML = SVG_RETRY + '<span></span>';
-        retry.querySelector('span').textContent = STR.retry;
+        retry.querySelector('span').textContent = unsent ? STR.send : STR.retry;
         retry.addEventListener('click', async () => {
             if (entry.status === 'sent' && !confirm(STR.confirm_resend_duplicate)) return;
             retry.disabled = true;
+            closePreviewIfCurrent(entry.id); // this row is leaving 'unsent'
             setStatus('sending', STR.sending);
             try {
                 await upload(entry.blob, entry.mime);
                 await dbUpdate(entry.id, { status: 'sent' });
-                setStatus('sent', STR.resent);
+                setStatus('sent', unsent ? STR.sent : STR.resent);
             } catch (err) {
                 retry.disabled = false;
                 setStatus('error', STR.send_error + ': ' + err.message);
@@ -662,6 +708,7 @@ async function renderHistory() {
         del.addEventListener('click', async () => {
             if (!confirm(STR.confirm_delete)) return;
             await dbDelete(entry.id);
+            closePreviewIfCurrent(entry.id);
             renderHistory();
         });
         actions.appendChild(del);

@@ -61,6 +61,16 @@ it('renders share and download buttons in the preview', function () {
     $this->get('/')->assertSee('Stáhnout nahrávku');
 });
 
+it('exposes the unsent badge string for recordings not yet sent', function () {
+    $this->get('/')
+        ->assertSee('not sent');
+
+    config()->set('voice.locale', 'cs');
+
+    // @json escapes non-ASCII, so the Czech string appears \u-escaped.
+    $this->get('/')->assertSee('neodesl\u00e1no', escape: false);
+});
+
 it('tells crawlers not to index the app', function () {
     $this->get('/')
         ->assertHeader('X-Robots-Tag', 'noindex, nofollow, noarchive')

@@ -1,7 +1,7 @@
 /* ============================================================
    vikunja-voice — "night studio" dark theme
-   Monochrome surfaces, one signal-red accent, green/red only
-   as status semantics. Palette lives in :root; keep it in sync
+   Monochrome surfaces, one signal-red accent, green/amber/red
+   only as status semantics. Palette lives in :root; keep it in sync
    with public/manifest.json, the <meta name="theme-color"> in
    recorder.blade.php, and scripts/make-icons.php.
    ============================================================ */
@@ -21,6 +21,7 @@
     --accent-lo: #c92f36;
     --ok: #4ade80;
     --err: #f87171;
+    --warn: #fbbf24;
     --radius-card: 1.25rem;
     --radius-control: 0.7rem;
 }
@@ -638,6 +639,12 @@ button { font: inherit; }
     color: var(--err);
     background: rgba(248, 113, 113, 0.1);
     border-color: rgba(248, 113, 113, 0.25);
+}
+
+.badge.warn {
+    color: var(--warn);
+    background: rgba(251, 191, 36, 0.1);
+    border-color: rgba(251, 191, 36, 0.25);
 }
 
 .btn-retry {

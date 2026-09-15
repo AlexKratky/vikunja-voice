@@ -17,7 +17,7 @@ Browser PWA ──POST /api/recordings──▶ Laravel ──▶ storage (priva
                                               (against live projects/labels)
 ```
 
-1. The PWA records audio (`MediaRecorder`) and uploads it with a shared bearer token. Recording history is kept only in your browser (IndexedDB), with retry for failed uploads.
+1. The PWA records audio (`MediaRecorder`) and uploads it with a shared bearer token. Recording history is kept only in your browser (IndexedDB): a recording lands there as soon as you stop recording, marked *not sent* until you send it, so closing the app before sending never loses it. Failed uploads can be retried from the history.
 2. A queued job sends the audio to Gemini with a structured-output schema: a verbatim transcript plus a list of tasks. One recording is one task by default; the model splits it only when you explicitly say "new task" / "další úkol" while dictating. Relative dates ("tomorrow", "by Friday") are resolved against the configured timezone.
 3. Extracted project and label IDs are validated against your actual Vikunja data — the model cannot invent IDs. Each task is created with its part of the transcript preserved in its description (with a single task, the whole transcript).
 4. Optionally, a [ntfy](https://ntfy.sh/) notification confirms success or failure.
@@ -134,7 +134,7 @@ Scheduler (cron):
 
 - **Your audio is sent to Google Gemini** for transcription and extraction. If that is not acceptable to you, this tool is not for you.
 - Uploads are protected by a single bearer token compared with `hash_equals`; the endpoint fails closed when no token is configured. There are no accounts and no server-side way to read recordings back — the API only ever answers `202`/`4xx`.
-- Recording history lives only in your browser (IndexedDB); the upload token is kept in `localStorage`.
+- Recording history lives only in your browser (IndexedDB), from the moment recording stops (marked as not sent until you send it); the upload token is kept in `localStorage`.
 - **Retention:** the daily `recordings:prune` command deletes audio files of *successfully processed* recordings after `RETENTION_DAYS`. Transcripts remain in the SQLite database and in the created Vikunja tasks. Audio of *failed* recordings is kept until you retry or delete it manually — by design, so nothing is lost.
 
 > [!WARNING]
