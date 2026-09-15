@@ -16,6 +16,8 @@ class Recording extends Model
     {
         return [
             'audio_deleted_at' => 'datetime',
+            'extraction' => 'array',
+            'vikunja_task_ids' => 'array',
         ];
     }
 }

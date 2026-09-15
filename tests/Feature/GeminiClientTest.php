@@ -21,12 +21,15 @@ it('sends audio and context, returns decoded extraction', function () {
     Http::fake([
         'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
             'transcript' => 'nakoupit mléko',
-            'title' => 'Nakoupit mléko',
-            'description' => null,
-            'due_date' => null,
-            'priority' => null,
-            'project_id' => 5,
-            'label_ids' => [],
+            'tasks' => [[
+                'transcript_segment' => null,
+                'title' => 'Nakoupit mléko',
+                'description' => null,
+                'due_date' => null,
+                'priority' => null,
+                'project_id' => 5,
+                'label_ids' => [],
+            ]],
         ])),
     ]);
 
@@ -38,7 +41,9 @@ it('sends audio and context, returns decoded extraction', function () {
         now: new DateTimeImmutable('2026-08-06 14:32:00', new DateTimeZone('Europe/Prague')),
     );
 
-    expect($result['title'])->toBe('Nakoupit mléko')->and($result['project_id'])->toBe(5);
+    expect($result['transcript'])->toBe('nakoupit mléko')
+        ->and($result['tasks'][0]['title'])->toBe('Nakoupit mléko')
+        ->and($result['tasks'][0]['project_id'])->toBe(5);
 
     Http::assertSent(function ($request) {
         $body = $request->data();
@@ -57,7 +62,7 @@ it('sends audio and context, returns decoded extraction', function () {
 it('normalizes video/webm to audio/webm', function () {
     Http::fake([
         'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
-            'transcript' => 'x', 'title' => 'x', 'label_ids' => [],
+            'transcript' => 'x', 'tasks' => [['title' => 'x', 'label_ids' => []]],
         ])),
     ]);
 
@@ -69,7 +74,7 @@ it('normalizes video/webm to audio/webm', function () {
 it('uses the English prompt and user instruction by default', function () {
     Http::fake([
         'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
-            'transcript' => 'x', 'title' => 'x', 'label_ids' => [],
+            'transcript' => 'x', 'tasks' => [['title' => 'x', 'label_ids' => []]],
         ])),
     ]);
 
@@ -87,7 +92,7 @@ it('uses the Czech prompt and user instruction when locale is cs', function () {
     config()->set('voice.locale', 'cs');
     Http::fake([
         'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
-            'transcript' => 'x', 'title' => 'x', 'label_ids' => [],
+            'transcript' => 'x', 'tasks' => [['title' => 'x', 'label_ids' => []]],
         ])),
     ]);
 
@@ -105,7 +110,7 @@ it('falls back to the English prompt for unsupported locales', function () {
     config()->set('voice.locale', 'de');
     Http::fake([
         'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
-            'transcript' => 'x', 'title' => 'x', 'label_ids' => [],
+            'transcript' => 'x', 'tasks' => [['title' => 'x', 'label_ids' => []]],
         ])),
     ]);
 
@@ -120,7 +125,7 @@ it('puts the configured timezone in the prompt', function () {
     config()->set('voice.timezone', 'America/New_York');
     Http::fake([
         'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
-            'transcript' => 'x', 'title' => 'x', 'label_ids' => [],
+            'transcript' => 'x', 'tasks' => [['title' => 'x', 'label_ids' => []]],
         ])),
     ]);
 
@@ -129,6 +134,68 @@ it('puts the configured timezone in the prompt', function () {
     Http::assertSent(fn ($request) => str_contains(
         $request->data()['systemInstruction']['parts'][0]['text'], 'America/New_York',
     ));
+});
+
+it('requests a whole transcript plus a non-empty, ordered list of tasks', function () {
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
+            'transcript' => 'x', 'tasks' => [['title' => 'x', 'label_ids' => []]],
+        ])),
+    ]);
+
+    (new GeminiClient)->extract('x', 'audio/webm', [], [], new DateTimeImmutable);
+
+    Http::assertSent(function ($request) {
+        $schema = $request->data()['generationConfig']['responseSchema'];
+        $task = $schema['properties']['tasks']['items'];
+
+        return $schema['required'] === ['transcript', 'tasks']
+            && $schema['propertyOrdering'] === ['transcript', 'tasks']
+            && $schema['properties']['tasks']['type'] === 'ARRAY'
+            && $schema['properties']['tasks']['minItems'] === 1
+            && $task['required'] === ['title', 'label_ids']
+            && $task['propertyOrdering'][0] === 'transcript_segment'
+            && $task['properties']['transcript_segment'] === ['type' => 'STRING', 'nullable' => true];
+    });
+});
+
+it('instructs the English prompt to split only on an explicit cue and to clean the description', function () {
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
+            'transcript' => 'x', 'tasks' => [['title' => 'x', 'label_ids' => []]],
+        ])),
+    ]);
+
+    (new GeminiClient)->extract('x', 'audio/webm', [], [], new DateTimeImmutable);
+
+    Http::assertSent(function ($request) {
+        $prompt = $request->data()['systemInstruction']['parts'][0]['text'];
+
+        return str_contains($prompt, 'EXACTLY ONE task')
+            && str_contains($prompt, '"new task"')
+            && str_contains($prompt, 'drop filler words')
+            && str_contains($prompt, '`transcript_segment`');
+    });
+});
+
+it('instructs the Czech prompt to split only on an explicit cue and to clean the description', function () {
+    config()->set('voice.locale', 'cs');
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
+            'transcript' => 'x', 'tasks' => [['title' => 'x', 'label_ids' => []]],
+        ])),
+    ]);
+
+    (new GeminiClient)->extract('x', 'audio/webm', [], [], new DateTimeImmutable);
+
+    Http::assertSent(function ($request) {
+        $prompt = $request->data()['systemInstruction']['parts'][0]['text'];
+
+        return str_contains($prompt, 'PRÁVĚ JEDEN úkol')
+            && str_contains($prompt, '„založ nový úkol"')
+            && str_contains($prompt, 'vynech vatu')
+            && str_contains($prompt, '`transcript_segment`');
+    });
 });
 
 it('throws on HTTP error', function () {

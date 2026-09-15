@@ -2,10 +2,10 @@
 
 use App\Services\ExtractionValidator;
 
-function validate(array $overrides = []): array
+function rawTask(array $overrides = []): array
 {
-    $raw = array_merge([
-        'transcript' => 'nakoupit mléko do pátku',
+    return array_merge([
+        'transcript_segment' => null,
         'title' => 'Nakoupit mléko',
         'description' => 'Plnotučné',
         'due_date' => '2026-08-08T23:59:00+02:00',
@@ -13,36 +13,120 @@ function validate(array $overrides = []): array
         'project_id' => 5,
         'label_ids' => [1, 2],
     ], $overrides);
+}
 
+function validateRaw(array $raw): array
+{
     return ExtractionValidator::validate(
         $raw,
         validProjectIds: [5, 7],
         validLabelIds: [1, 2, 9],
         defaultProjectId: 7,
-        now: new DateTimeImmutable('2026-08-06 14:32:00', new DateTimeZone('Europe/Prague')),
+        fallbackTitle: 'Recording 6. 8. 2026 14:32',
     );
 }
 
-it('passes through valid data', function () {
-    expect(validate())->toBe([
-        'title' => 'Nakoupit mléko',
-        'description' => 'Plnotučné',
-        'due_date' => '2026-08-08T23:59:00+02:00',
-        'priority' => 3,
-        'project_id' => 5,
-        'label_ids' => [1, 2],
+/** Validates a single-task response and returns that task. */
+function validate(array $taskOverrides = []): array
+{
+    return validateRaw([
         'transcript' => 'nakoupit mléko do pátku',
+        'tasks' => [rawTask($taskOverrides)],
+    ])['tasks'][0];
+}
+
+it('passes through valid data', function () {
+    expect(validateRaw([
+        'transcript' => 'nakoupit mléko do pátku',
+        'tasks' => [rawTask(['transcript_segment' => 'nakoupit mléko'])],
+    ]))->toBe([
+        'transcript' => 'nakoupit mléko do pátku',
+        'tasks' => [[
+            'title' => 'Nakoupit mléko',
+            'description' => 'Plnotučné',
+            'due_date' => '2026-08-08T23:59:00+02:00',
+            'priority' => 3,
+            'project_id' => 5,
+            'label_ids' => [1, 2],
+            'transcript' => 'nakoupit mléko',
+        ]],
     ]);
 });
 
-it('falls back to timestamped title when empty or missing', function () {
-    expect(validate(['title' => '  '])['title'])->toBe('Nahrávka 6. 8. 2026 14:32');
-    expect(validate(['title' => null])['title'])->toBe('Nahrávka 6. 8. 2026 14:32');
+it('sanitizes every task independently', function () {
+    $result = validateRaw([
+        'transcript' => 'dva úkoly',
+        'tasks' => [
+            rawTask(['title' => 'První', 'project_id' => 999, 'label_ids' => [1, 42]]),
+            rawTask(['title' => 'Druhý', 'project_id' => 5, 'priority' => 9, 'label_ids' => [9]]),
+        ],
+    ]);
+
+    expect($result['tasks'])->toHaveCount(2)
+        ->and($result['tasks'][0]['title'])->toBe('První')
+        ->and($result['tasks'][0]['project_id'])->toBe(7)
+        ->and($result['tasks'][0]['label_ids'])->toBe([1])
+        ->and($result['tasks'][1]['title'])->toBe('Druhý')
+        ->and($result['tasks'][1]['project_id'])->toBe(5)
+        ->and($result['tasks'][1]['priority'])->toBe(5)
+        ->and($result['tasks'][1]['label_ids'])->toBe([9]);
 });
 
-it('defaults description and transcript to empty strings', function () {
-    $result = validate(['description' => null, 'transcript' => null]);
-    expect($result['description'])->toBe('')->and($result['transcript'])->toBe('');
+it('builds a single task from the top-level keys when tasks are missing, empty or malformed', function (mixed $tasks) {
+    $raw = [
+        'transcript' => 'nakoupit mléko',
+        'title' => 'Nakoupit mléko',
+        'project_id' => 5,
+        'label_ids' => [1],
+    ];
+    if ($tasks !== 'absent') {
+        $raw['tasks'] = $tasks;
+    }
+
+    $result = validateRaw($raw);
+
+    expect($result['transcript'])->toBe('nakoupit mléko')
+        ->and($result['tasks'])->toHaveCount(1)
+        ->and($result['tasks'][0]['title'])->toBe('Nakoupit mléko')
+        ->and($result['tasks'][0]['project_id'])->toBe(5)
+        ->and($result['tasks'][0]['label_ids'])->toBe([1])
+        ->and($result['tasks'][0]['transcript'])->toBe('nakoupit mléko');
+})->with([
+    'absent' => ['absent'],
+    'empty array' => [[]],
+    'not an array' => ['nope'],
+    'only garbage entries' => [['garbage', 12]],
+]);
+
+it('drops non-array entries from tasks', function () {
+    $result = validateRaw([
+        'transcript' => 'x',
+        'tasks' => ['garbage', rawTask(['title' => 'Platný'])],
+    ]);
+
+    expect($result['tasks'])->toHaveCount(1)
+        ->and($result['tasks'][0]['title'])->toBe('Platný');
+});
+
+it('prefers transcript_segment over transcript inside a task', function () {
+    $task = validate(['transcript_segment' => 'segment', 'transcript' => 'whole']);
+    expect($task['transcript'])->toBe('segment');
+
+    $task = validate(['transcript_segment' => null, 'transcript' => 'whole']);
+    expect($task['transcript'])->toBe('whole');
+});
+
+it('falls back to the given title when empty or missing', function () {
+    expect(validate(['title' => '  '])['title'])->toBe('Recording 6. 8. 2026 14:32');
+    expect(validate(['title' => null])['title'])->toBe('Recording 6. 8. 2026 14:32');
+});
+
+it('defaults description and transcripts to empty strings', function () {
+    $result = validateRaw(['transcript' => null, 'tasks' => [rawTask(['description' => null])]]);
+
+    expect($result['transcript'])->toBe('')
+        ->and($result['tasks'][0]['description'])->toBe('')
+        ->and($result['tasks'][0]['transcript'])->toBe('');
 });
 
 it('nulls unparseable due dates', function () {

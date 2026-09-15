@@ -39,66 +39,80 @@ class ProcessRecording implements ShouldQueue
 
         $recording->update(['status' => 'processing']);
 
-        $projects = $vikunja->projects();
-        $labels = $vikunja->labels();
-        $now = new \DateTimeImmutable('now', new \DateTimeZone(config('voice.timezone')));
+        $extraction = $recording->extraction;
+        $createdIds = array_map(intval(...), $recording->vikunja_task_ids ?? []);
 
-        $raw = $gemini->extract(
-            Storage::disk('local')->get($recording->path),
-            $recording->mime,
-            $projects,
-            $labels,
-            $now,
-        );
+        if (! is_array($extraction['tasks'] ?? null) || $extraction['tasks'] === []) {
+            if ($createdIds !== []) {
+                // Tasks exist but the extraction is gone: running Gemini again
+                // could split differently and duplicate them. Fail loudly.
+                throw new \RuntimeException("Recording {$recording->id} has created tasks but no usable extraction");
+            }
 
-        $task = ExtractionValidator::validate(
-            $raw,
-            validProjectIds: array_column($projects, 'id'),
-            validLabelIds: array_column($labels, 'id'),
-            defaultProjectId: (int) config('voice.vikunja.default_project_id'),
-            now: $now,
-        );
+            $extraction = $this->extract($recording, $gemini, $vikunja);
 
-        $task['label_ids'] = $this->withAutoLabel($task['label_ids'], $labels);
-
-        $payload = [
-            'title' => $task['title'],
-            'description' => $this->buildDescription($task['description'], $task['transcript']),
-            'priority' => $task['priority'],
-        ];
-
-        if ($task['due_date'] !== null) {
-            $payload['due_date'] = $task['due_date'];
+            // Persist before creating anything: a retry reuses this instead of
+            // calling Gemini again, and the transcript survives a later failure.
+            $recording->update([
+                'extraction' => $extraction,
+                'transcript' => $extraction['transcript'],
+                'vikunja_task_ids' => [],
+            ]);
         }
 
-        $created = $vikunja->createTask($task['project_id'], $payload);
-        $taskId = (int) $created['id'];
+        $tasks = $extraction['tasks'];
+        $total = count($tasks);
 
-        foreach ($task['label_ids'] as $labelId) {
-            try {
-                $vikunja->attachLabel($taskId, $labelId);
-            } catch (\Throwable $e) {
-                Log::warning('Label attach failed', ['task' => $taskId, 'label' => $labelId, 'error' => $e->getMessage()]);
+        for ($i = count($createdIds); $i < $total; $i++) {
+            $task = $tasks[$i];
+
+            $payload = [
+                'title' => $task['title'],
+                'description' => $this->buildDescription(
+                    $task['description'],
+                    $this->transcriptFor($extraction, $i),
+                    $i + 1,
+                    $total,
+                ),
+                'priority' => $task['priority'],
+            ];
+
+            if ($task['due_date'] !== null) {
+                $payload['due_date'] = $task['due_date'];
+            }
+
+            $created = $vikunja->createTask($task['project_id'], $payload);
+            $taskId = (int) $created['id'];
+
+            foreach ($task['label_ids'] as $labelId) {
+                try {
+                    $vikunja->attachLabel($taskId, $labelId);
+                } catch (\Throwable $e) {
+                    Log::warning('Label attach failed', ['task' => $taskId, 'label' => $labelId, 'error' => $e->getMessage()]);
+                }
+            }
+
+            $this->autoAssign($vikunja, $taskId);
+
+            // Record the id before notifying: a retry skips this task, so it
+            // can neither be created nor announced twice.
+            $createdIds[] = $taskId;
+            $recording->update(['vikunja_task_ids' => $createdIds]);
+
+            if (config('voice.ntfy.notify_success')) {
+                $ntfy->send("✅ {$task['title']}", config('voice.vikunja.url')."/tasks/{$taskId}");
             }
         }
 
-        $this->autoAssign($vikunja, $taskId);
-
-        $recording->update([
-            'status' => 'done',
-            'transcript' => $task['transcript'],
-            'vikunja_task_id' => $taskId,
-        ]);
-
-        if (config('voice.ntfy.notify_success')) {
-            $ntfy->send("✅ {$task['title']}", config('voice.vikunja.url')."/tasks/{$taskId}");
-        }
+        $recording->update(['status' => 'done']);
     }
 
     public function failed(?\Throwable $exception): void
     {
         $error = $exception?->getMessage() ?? 'unknown';
 
+        // `extraction` and `vikunja_task_ids` are kept on purpose, so a manual
+        // queue:retry resumes from the first task that was not created yet.
         Recording::where('id', $this->recordingId)->update([
             'status' => 'failed',
             'error' => $error,
@@ -119,6 +133,40 @@ class ProcessRecording implements ShouldQueue
         });
 
         app(Ntfy::class)->send('❌ '.__('voice.processing_failed', locale: config('voice.locale')).': '.$error);
+    }
+
+    /**
+     * Run Gemini over the audio and validate the result against live Vikunja
+     * data. The auto label is baked in here so the persisted extraction is
+     * self-contained and a retry needs no Vikunja lookups.
+     */
+    private function extract(Recording $recording, GeminiClient $gemini, VikunjaClient $vikunja): array
+    {
+        $projects = $vikunja->projects();
+        $labels = $vikunja->labels();
+        $now = new \DateTimeImmutable('now', new \DateTimeZone(config('voice.timezone')));
+
+        $raw = $gemini->extract(
+            Storage::disk('local')->get($recording->path),
+            $recording->mime,
+            $projects,
+            $labels,
+            $now,
+        );
+
+        $extraction = ExtractionValidator::validate(
+            $raw,
+            validProjectIds: array_column($projects, 'id'),
+            validLabelIds: array_column($labels, 'id'),
+            defaultProjectId: (int) config('voice.vikunja.default_project_id'),
+            fallbackTitle: __('voice.fallback_title', ['time' => $now->format('j. n. Y H:i')], locale: config('voice.locale')),
+        );
+
+        foreach ($extraction['tasks'] as $i => $task) {
+            $extraction['tasks'][$i]['label_ids'] = $this->withAutoLabel($task['label_ids'], $labels);
+        }
+
+        return $extraction;
     }
 
     private function withAutoLabel(array $labelIds, array $labels): array
@@ -163,12 +211,31 @@ class ProcessRecording implements ShouldQueue
         }
     }
 
-    private function buildDescription(string $description, string $transcript): string
+    /**
+     * A single task keeps the whole recording under the rule, exactly as
+     * before. With several tasks each gets its own verbatim segment, falling
+     * back to the whole recording if the model left the segment empty.
+     */
+    private function transcriptFor(array $extraction, int $index): string
+    {
+        $whole = (string) $extraction['transcript'];
+        $segment = trim((string) ($extraction['tasks'][$index]['transcript'] ?? ''));
+
+        if (count($extraction['tasks']) === 1) {
+            return $whole !== '' ? $whole : $segment;
+        }
+
+        return $segment !== '' ? $segment : $whole;
+    }
+
+    private function buildDescription(string $description, string $transcript, int $index, int $total): string
     {
         $html = $description !== '' ? '<p>'.e($description).'</p>' : '';
 
         // Explicit locale: queue workers don't run the SetVoiceLocale HTTP middleware.
-        $label = __('voice.transcript_label', locale: config('voice.locale'));
+        $label = $total > 1
+            ? __('voice.transcript_label_multi', ['index' => $index, 'total' => $total], locale: config('voice.locale'))
+            : __('voice.transcript_label', locale: config('voice.locale'));
 
         return $html.'<hr><p><em>'.e($label).':</em> '.e($transcript).'</p>';
     }

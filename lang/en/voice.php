@@ -2,6 +2,8 @@
 
 return [
     'transcript_label' => 'Transcript',
+    'transcript_label_multi' => 'Transcript (task :index/:total)',
+    'fallback_title' => 'Recording :time',
     'processing_failed' => 'Voice note processing failed',
 
     // Blade-only strings.

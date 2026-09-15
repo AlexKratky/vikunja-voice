@@ -5,19 +5,54 @@ namespace App\Services;
 class ExtractionValidator
 {
     /**
+     * Sanitize a raw Gemini extraction into a whole-recording transcript plus
+     * one or more tasks. Framework-free on purpose: unit tests run it without
+     * booting Laravel, so the locale-dependent fallback title is passed in.
+     *
      * @param  array<int, int>  $validProjectIds
      * @param  array<int, int>  $validLabelIds
+     * @return array{transcript: string, tasks: list<array<string, mixed>>}
      */
     public static function validate(
         array $raw,
         array $validProjectIds,
         array $validLabelIds,
         int $defaultProjectId,
-        \DateTimeImmutable $now,
+        string $fallbackTitle,
+    ): array {
+        $rawTasks = is_array($raw['tasks'] ?? null)
+            ? array_values(array_filter($raw['tasks'], is_array(...)))
+            : [];
+
+        // Missing, empty or malformed `tasks`: treat the top-level object as a
+        // single task, so the old flat response shape still yields a task.
+        if ($rawTasks === []) {
+            $rawTasks = [$raw];
+        }
+
+        return [
+            'transcript' => trim((string) ($raw['transcript'] ?? '')),
+            'tasks' => array_map(
+                fn (array $task) => self::task($task, $validProjectIds, $validLabelIds, $defaultProjectId, $fallbackTitle),
+                $rawTasks,
+            ),
+        ];
+    }
+
+    /**
+     * @param  array<int, int>  $validProjectIds
+     * @param  array<int, int>  $validLabelIds
+     */
+    private static function task(
+        array $raw,
+        array $validProjectIds,
+        array $validLabelIds,
+        int $defaultProjectId,
+        string $fallbackTitle,
     ): array {
         $title = trim((string) ($raw['title'] ?? ''));
         if ($title === '') {
-            $title = 'Nahrávka '.$now->format('j. n. Y H:i');
+            $title = $fallbackTitle;
         }
 
         $dueDate = null;
@@ -48,7 +83,9 @@ class ExtractionValidator
             'priority' => $priority,
             'project_id' => $projectId,
             'label_ids' => $labelIds,
-            'transcript' => trim((string) ($raw['transcript'] ?? '')),
+            // Wire name is `transcript_segment`; `transcript` is accepted so the
+            // flat old-shape fallback above carries the whole recording.
+            'transcript' => trim((string) ($raw['transcript_segment'] ?? $raw['transcript'] ?? '')),
         ];
     }
 }

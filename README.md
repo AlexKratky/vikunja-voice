@@ -4,7 +4,7 @@
 [![Laravel 13](https://img.shields.io/badge/Laravel-13-FF2D20?logo=laravel&logoColor=white)](composer.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Voice-to-task for self-hosted [Vikunja](https://vikunja.io/). Dictate a note in a minimal recorder PWA; the server transcribes it with Google Gemini, extracts a structured task (title, due date, priority, project, labels), and creates it via the Vikunja API.
+Voice-to-task for self-hosted [Vikunja](https://vikunja.io/). Dictate a note in a minimal recorder PWA; the server transcribes it with Google Gemini, extracts one or more structured tasks (title, due date, priority, project, labels), and creates them via the Vikunja API.
 
 No recording is ever lost: the audio file is stored before processing, the job retries 5 times with backoff, and permanently failed jobs stay in `failed_jobs` for manual replay.
 
@@ -18,8 +18,8 @@ Browser PWA ──POST /api/recordings──▶ Laravel ──▶ storage (priva
 ```
 
 1. The PWA records audio (`MediaRecorder`) and uploads it with a shared bearer token. Recording history is kept only in your browser (IndexedDB), with retry for failed uploads.
-2. A queued job sends the audio to Gemini with a structured-output schema: verbatim transcript plus task fields. Relative dates ("tomorrow", "by Friday") are resolved against the configured timezone.
-3. Extracted project and label IDs are validated against your actual Vikunja data — the model cannot invent IDs. The task is created with the transcript preserved in its description.
+2. A queued job sends the audio to Gemini with a structured-output schema: a verbatim transcript plus a list of tasks. One recording is one task by default; the model splits it only when you explicitly say "new task" / "další úkol" while dictating. Relative dates ("tomorrow", "by Friday") are resolved against the configured timezone.
+3. Extracted project and label IDs are validated against your actual Vikunja data — the model cannot invent IDs. Each task is created with its part of the transcript preserved in its description (with a single task, the whole transcript).
 4. Optionally, a [ntfy](https://ntfy.sh/) notification confirms success or failure.
 
 ## Features
@@ -27,6 +27,7 @@ Browser PWA ──POST /api/recordings──▶ Laravel ──▶ storage (priva
 - One-tap recorder PWA, installable on mobile, with browser-local history and retry
 - Accepts audio shared from other Android apps (Web Share Target), and can share or download recordings back out
 - Structured extraction: title, description, due date, priority (Vikunja 0–5 scale), project, labels
+- Several tasks from one recording: say "new task" out loud and keep dictating; a change of topic alone never splits
 - Auto-assign every task to a configured user and/or auto-attach a configured label
 - Daily retention pruning of processed audio files
 - Single-user by design: one shared upload token, no accounts, and the server exposes **no endpoint to read, list, or download recordings**
@@ -88,6 +89,7 @@ Applies to both variants below:
 - Set `APP_ENV=production` and `APP_DEBUG=false`. With debug enabled, any error page leaks stack traces and configuration — **including the API keys from `.env`**.
 - The web server document root must be the `public/` directory, never the repo root. Pointing it at the repo root would expose `.env`, the SQLite database, and the stored recordings.
 - Serve over HTTPS only.
+- Upgrading from a version with a single `vikunja_task_id` column? Back up `storage/database.sqlite` first: the migration moves the IDs into `vikunja_task_ids` and drops the old column.
 
 ### Coolify (Railpack build pack)
 
@@ -143,7 +145,7 @@ Scheduler (cron):
 - After 5 failed attempts the job lands in `failed_jobs` and a ntfy notification is sent (if configured). The audio stays on disk — failed recordings are never auto-deleted.
 - Reprocess: `php artisan queue:retry all`
 - Inspect: `php artisan queue:failed`
-- Processing is at-least-once: if the worker dies right after creating the Vikunja task but before recording it in the DB, a retry can exceptionally create a duplicate task — nothing is ever lost; a duplicate always beats a lost note.
+- Retries resume where they stopped: the Gemini extraction is stored before the first task is created and every task ID right after its creation, so a retry never calls Gemini again and never re-creates an existing task. Only a worker dying between the Vikunja call and the DB write can exceptionally duplicate a single task — nothing is ever lost; a duplicate always beats a lost note.
 
 ## Contributing
 

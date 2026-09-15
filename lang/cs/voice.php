@@ -2,6 +2,8 @@
 
 return [
     'transcript_label' => 'Přepis',
+    'transcript_label_multi' => 'Přepis (úkol :index/:total)',
+    'fallback_title' => 'Nahrávka :time',
     'processing_failed' => 'Zpracování nahrávky selhalo',
 
     'ui' => [
