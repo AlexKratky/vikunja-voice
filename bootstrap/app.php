@@ -15,7 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->validateCsrfTokens(except: ['api/*']);
+        $middleware->validateCsrfTokens(except: ['api/*', 'share-target']);
         $middleware->append(SetVoiceLocale::class);
         $middleware->append(DenyIndexing::class);
     })

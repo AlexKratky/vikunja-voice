@@ -30,6 +30,10 @@ $('token-form').addEventListener('submit', (e) => {
     token = $('token-input').value.trim();
     localStorage.setItem('vv_token', token);
     showSections();
+    if (pendingShare) {
+        importFile(pendingShare);
+        pendingShare = null;
+    }
 });
 
 // ---------- IndexedDB history ----------
@@ -98,7 +102,7 @@ async function dbClear() {
 
 // ---------- recording ----------
 let mediaRecorder = null;
-let current = null; // { blob, mime }
+let current = null; // { blob, mime, createdAt }
 
 function pickMime() {
     for (const m of ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']) {
@@ -234,6 +238,7 @@ const ACCEPTED_MIMES = {
 const EXT_TO_MIME = {
     webm: 'audio/webm',
     ogg: 'audio/ogg',
+    opus: 'audio/ogg',
     m4a: 'audio/mp4',
     mp4: 'audio/mp4',
     mp3: 'audio/mpeg',
@@ -243,14 +248,16 @@ const EXT_TO_MIME = {
 const MAX_IMPORT_BYTES = 20 * 1024 * 1024;
 
 function mimeFromFile(file) {
-    const type = (file.type || '').split(';')[0].trim().toLowerCase();
+    let type = (file.type || '').split(';')[0].trim().toLowerCase();
+    // Opus in an Ogg container: the backend sniffs and accepts it as audio/ogg.
+    if (type === 'audio/opus') type = 'audio/ogg';
     if (type && ACCEPTED_MIMES[type]) return type;
     const ext = (file.name.split('.').pop() || '').toLowerCase();
     return EXT_TO_MIME[ext] || '';
 }
 
 function showPreview(blob, mime) {
-    current = { blob, mime };
+    current = { blob, mime, createdAt: Date.now() };
     const audio = $('preview-audio');
     const prev = audio.src;
     audio.src = URL.createObjectURL(blob);
@@ -309,25 +316,36 @@ $('import').addEventListener('click', () => {
     $('import-audio').click();
 });
 
-$('import-audio').addEventListener('change', () => {
-    const input = $('import-audio');
-    const file = input.files && input.files[0];
-    input.value = '';
-    if (!file) return;
-
+// Validates an external audio file (file picker or Web Share Target) and
+// opens it in the preview, or reports why it was rejected.
+function importFile(file) {
     const mime = mimeFromFile(file);
     if (!mime || file.size === 0 || file.size > MAX_IMPORT_BYTES) {
         setStatus('error', STR.import_error);
         return;
     }
-
     showPreview(file, mime);
+}
+
+$('import-audio').addEventListener('change', () => {
+    const input = $('import-audio');
+    const file = input.files && input.files[0];
+    input.value = '';
+    if (file) importFile(file);
 });
 
 $('discard').addEventListener('click', () => {
     current = null;
     $('preview').hidden = true;
     setStatus('ready', STR.ready);
+});
+
+$('share-preview').addEventListener('click', () => {
+    if (current) shareEntry(current);
+});
+
+$('download-preview').addEventListener('click', () => {
+    if (current) downloadEntry(current);
 });
 
 // ---------- upload ----------
@@ -352,7 +370,7 @@ async function upload(blob, mime) {
 
 $('send').addEventListener('click', async () => {
     if (!current) return;
-    const { blob, mime } = current;
+    const { blob, mime, createdAt } = current;
 
     $('preview').hidden = true;
     current = null;
@@ -360,7 +378,7 @@ $('send').addEventListener('click', async () => {
 
     let id = null;
     try {
-        id = await dbAdd({ blob, mime, createdAt: Date.now(), status: 'sending' });
+        id = await dbAdd({ blob, mime, createdAt, status: 'sending' });
     } catch (_) {
         id = null;
     }
@@ -383,6 +401,7 @@ const SVG_PAUSE = '<svg class="icon-pause" viewBox="0 0 24 24" fill="currentColo
 const SVG_RETRY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>';
 const SVG_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
 const SVG_SHARE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>';
+const SVG_DOWNLOAD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
 
 // One shared player for history entries so plays never overlap and object
 // URLs get revoked when playback stops. The expanded panel (seek + times +
@@ -520,6 +539,10 @@ function downloadEntry(entry) {
     setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 
+// Share buttons are only shown where the Web Share API exists; Download is
+// always available because Android share sheets offer no "save locally".
+const CAN_SHARE = typeof navigator.share === 'function';
+
 async function shareEntry(entry) {
     const file = new File([entry.blob], shareFilename(entry), { type: entry.mime });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -620,7 +643,16 @@ async function renderHistory() {
         share.setAttribute('aria-label', STR.share_recording);
         share.innerHTML = SVG_SHARE;
         share.addEventListener('click', () => shareEntry(entry));
+        share.hidden = !CAN_SHARE;
         actions.appendChild(share);
+
+        const download = document.createElement('button');
+        download.type = 'button';
+        download.className = 'icon-btn icon-btn-sm';
+        download.setAttribute('aria-label', STR.download_recording);
+        download.innerHTML = SVG_DOWNLOAD;
+        download.addEventListener('click', () => downloadEntry(entry));
+        actions.appendChild(download);
 
         const del = document.createElement('button');
         del.type = 'button';
@@ -749,9 +781,52 @@ function resolveDuration(audio, cb) {
     initRateButton($('player-rate'), () => audio);
 })();
 
+// ---------- Web Share Target ----------
+// Android hands a shared file to the service worker (POST /share-target),
+// which parks it in the Cache API and redirects here with ?share-target=1.
+// Keep SHARE_CACHE / SHARE_KEY in sync with public/sw.js.
+const SHARE_CACHE = 'vv-share';
+const SHARE_KEY = '/share-target/file';
+let pendingShare = null; // shared file waiting for the token to be entered
+
+async function consumeSharedFile() {
+    const params = new URLSearchParams(location.search);
+    if (!params.has('share-target')) return;
+    // Drop the marker so a reload doesn't run this again.
+    history.replaceState(null, '', location.pathname);
+
+    let file = null;
+    if (params.get('share-target') === '1' && window.caches) {
+        try {
+            const cache = await caches.open(SHARE_CACHE);
+            const res = await cache.match(SHARE_KEY);
+            if (res) {
+                await cache.delete(SHARE_KEY);
+                const blob = await res.blob();
+                const name = decodeURIComponent(res.headers.get('X-File-Name') || '');
+                file = new File([blob], name || 'shared', { type: res.headers.get('Content-Type') || blob.type });
+            }
+        } catch (_) {
+            file = null;
+        }
+    }
+
+    if (!file) {
+        setStatus('error', STR.share_target_error);
+        return;
+    }
+    if (!token) {
+        pendingShare = file;
+        return;
+    }
+    importFile(file);
+}
+
 // ---------- init ----------
 showSections();
 renderHistory();
+$('share-preview').hidden = !CAN_SHARE;
+consumeSharedFile();
 
 if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js');

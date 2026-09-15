@@ -45,6 +45,8 @@ return [
         'record' => 'Record',
         'stop_recording' => 'Stop recording',
         'share_recording' => 'Share recording',
+        'download_recording' => 'Download recording',
+        'share_target_error' => 'Could not receive the shared file. Open the app and share it again.',
         'delete_recording' => 'Delete recording',
         'confirm_delete' => 'Delete this recording?',
         'confirm_delete_all' => 'Delete the entire history?',

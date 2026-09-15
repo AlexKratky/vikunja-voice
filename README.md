@@ -25,6 +25,7 @@ Browser PWA ──POST /api/recordings──▶ Laravel ──▶ storage (priva
 ## Features
 
 - One-tap recorder PWA, installable on mobile, with browser-local history and retry
+- Accepts audio shared from other Android apps (Web Share Target), and can share or download recordings back out
 - Structured extraction: title, description, due date, priority (Vikunja 0–5 scale), project, labels
 - Auto-assign every task to a configured user and/or auto-attach a configured label
 - Daily retention pruning of processed audio files

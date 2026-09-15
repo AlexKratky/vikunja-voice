@@ -42,6 +42,8 @@ return [
         'record' => 'Nahrávat',
         'stop_recording' => 'Zastavit nahrávání',
         'share_recording' => 'Sdílet nahrávku',
+        'download_recording' => 'Stáhnout nahrávku',
+        'share_target_error' => 'Sdílený soubor se nepodařilo přijmout. Otevři aplikaci a zkus sdílet znovu.',
         'delete_recording' => 'Smazat nahrávku',
         'confirm_delete' => 'Opravdu smazat tuto nahrávku?',
         'confirm_delete_all' => 'Opravdu smazat celou historii?',

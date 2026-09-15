@@ -508,7 +508,8 @@ button { font: inherit; }
     .rate-btn:hover { background: #262c38; border-color: rgba(255, 255, 255, 0.22); }
 }
 
-.preview-actions { display: flex; gap: 0.6rem; }
+.preview-actions { display: flex; align-items: center; gap: 0.6rem; }
+.preview-tools { display: flex; gap: 0.4rem; }
 #send { flex: 1; }
 
 /* ---------- history ---------- */

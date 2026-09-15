@@ -50,6 +50,17 @@ it('renders the delete-all history button', function () {
         ->assertSee('Opravdu smazat celou historii?');
 });
 
+it('renders share and download buttons in the preview', function () {
+    $this->get('/')
+        ->assertSee('id="share-preview"', escape: false)
+        ->assertSee('id="download-preview"', escape: false)
+        ->assertSee('Download recording');
+
+    config()->set('voice.locale', 'cs');
+
+    $this->get('/')->assertSee('Stáhnout nahrávku');
+});
+
 it('tells crawlers not to index the app', function () {
     $this->get('/')
         ->assertHeader('X-Robots-Tag', 'noindex, nofollow, noarchive')
