@@ -73,6 +73,7 @@ class ProcessRecording implements ShouldQueue
                     $this->transcriptFor($extraction, $i),
                     $i + 1,
                     $total,
+                    $recording->text !== null,
                 ),
                 'priority' => $task['priority'],
             ];
@@ -136,9 +137,9 @@ class ProcessRecording implements ShouldQueue
     }
 
     /**
-     * Run Gemini over the audio and validate the result against live Vikunja
-     * data. The auto label is baked in here so the persisted extraction is
-     * self-contained and a retry needs no Vikunja lookups.
+     * Run Gemini over the audio (or the typed note) and validate the result
+     * against live Vikunja data. The auto label is baked in here so the
+     * persisted extraction is self-contained and a retry needs no Vikunja lookups.
      */
     private function extract(Recording $recording, GeminiClient $gemini, VikunjaClient $vikunja): array
     {
@@ -146,13 +147,15 @@ class ProcessRecording implements ShouldQueue
         $labels = $vikunja->labels();
         $now = new \DateTimeImmutable('now', new \DateTimeZone(config('voice.timezone')));
 
-        $raw = $gemini->extract(
-            Storage::disk('local')->get($recording->path),
-            $recording->mime,
-            $projects,
-            $labels,
-            $now,
-        );
+        $raw = $recording->text !== null
+            ? $gemini->extractFromText($recording->text, $projects, $labels, $now)
+            : $gemini->extract(
+                Storage::disk('local')->get($recording->path),
+                $recording->mime,
+                $projects,
+                $labels,
+                $now,
+            );
 
         $extraction = ExtractionValidator::validate(
             $raw,
@@ -161,6 +164,11 @@ class ProcessRecording implements ShouldQueue
             defaultProjectId: (int) config('voice.vikunja.default_project_id'),
             fallbackTitle: __('voice.fallback_title', ['time' => $now->format('j. n. Y H:i')], locale: config('voice.locale')),
         );
+
+        // A typed note is its own transcript, whatever the model echoed back.
+        if ($recording->text !== null) {
+            $extraction['transcript'] = trim($recording->text);
+        }
 
         foreach ($extraction['tasks'] as $i => $task) {
             $extraction['tasks'][$i]['label_ids'] = $this->withAutoLabel($task['label_ids'], $labels);
@@ -228,14 +236,15 @@ class ProcessRecording implements ShouldQueue
         return $segment !== '' ? $segment : $whole;
     }
 
-    private function buildDescription(string $description, string $transcript, int $index, int $total): string
+    private function buildDescription(string $description, string $transcript, int $index, int $total, bool $typed): string
     {
         $html = $description !== '' ? '<p>'.e($description).'</p>' : '';
+        $key = $typed ? 'voice.note_label' : 'voice.transcript_label';
 
         // Explicit locale: queue workers don't run the SetVoiceLocale HTTP middleware.
         $label = $total > 1
-            ? __('voice.transcript_label_multi', ['index' => $index, 'total' => $total], locale: config('voice.locale'))
-            : __('voice.transcript_label', locale: config('voice.locale'));
+            ? __("{$key}_multi", ['index' => $index, 'total' => $total], locale: config('voice.locale'))
+            : __($key, locale: config('voice.locale'));
 
         return $html.'<hr><p><em>'.e($label).':</em> '.e($transcript).'</p>';
     }

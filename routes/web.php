@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\NoteController;
 use App\Http\Controllers\RecordingController;
 use App\Http\Middleware\AuthenticateUploadToken;
 use Illuminate\Support\Facades\Route;
@@ -7,6 +8,9 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', fn () => view('recorder'));
 
 Route::post('/api/recordings', [RecordingController::class, 'store'])
+    ->middleware(AuthenticateUploadToken::class);
+
+Route::post('/api/notes', [NoteController::class, 'store'])
     ->middleware(AuthenticateUploadToken::class);
 
 // Web Share Target fallback: the service worker normally intercepts this

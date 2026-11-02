@@ -3,6 +3,8 @@
 return [
     'transcript_label' => 'Přepis',
     'transcript_label_multi' => 'Přepis (úkol :index/:total)',
+    'note_label' => 'Poznámka',
+    'note_label_multi' => 'Poznámka (úkol :index/:total)',
     'fallback_title' => 'Nahrávka :time',
     'processing_failed' => 'Zpracování nahrávky selhalo',
     'kuma_failed_jobs' => '{1} :count nahrávka selhala, viz failed_jobs|[2,4] :count nahrávky selhaly, viz failed_jobs|[5,*] :count nahrávek selhalo, viz failed_jobs',

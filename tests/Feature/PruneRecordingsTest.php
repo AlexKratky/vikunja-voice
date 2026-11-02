@@ -57,3 +57,14 @@ it('skips already-pruned rows', function () {
     expect($pruned->refresh()->audio_deleted_at->toDateTimeString())
         ->toBe($stamp->toDateTimeString());
 });
+
+it('skips typed notes, which have no audio', function () {
+    $note = Recording::factory()->note()->create([
+        'status' => 'done',
+        'created_at' => now()->subDays(30),
+    ]);
+
+    $this->artisan('recordings:prune')->assertSuccessful();
+
+    expect($note->refresh()->audio_deleted_at)->toBeNull();
+});

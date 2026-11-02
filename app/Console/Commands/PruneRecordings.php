@@ -18,6 +18,7 @@ class PruneRecordings extends Command
 
         $recordings = Recording::query()
             ->where('status', 'done')
+            ->whereNotNull('path') // typed notes have no audio
             ->whereNull('audio_deleted_at')
             ->where('created_at', '<', $cutoff)
             ->get();

@@ -41,6 +41,11 @@ function makeRecording(): Recording
     return $recording;
 }
 
+function makeNote(string $text = 'zítra koupit mléko'): Recording
+{
+    return Recording::factory()->note($text)->create();
+}
+
 function runJob(Recording $recording): void
 {
     (new ProcessRecording($recording->id))->handle(
@@ -597,4 +602,74 @@ it('captures a fallback exception when failed() receives null', function () {
 
     expect($captured)->toBeInstanceOf(RuntimeException::class)
         ->and($captured->getMessage())->toBe('ProcessRecording failed without exception');
+});
+
+it('processes a typed note end to end without touching storage', function () {
+    // The model echoes a slightly different transcript; the typed text wins.
+    fakeApis(geminiPayload(overrides: ['transcript' => 'Zítra koupit mléko.']));
+    $recording = makeNote('  zítra koupit mléko  ');
+
+    runJob($recording);
+
+    $recording->refresh();
+    expect($recording->status)->toBe('done')
+        ->and($recording->transcript)->toBe('zítra koupit mléko')
+        ->and($recording->extraction['transcript'])->toBe('zítra koupit mléko')
+        ->and($recording->vikunja_task_ids)->toBe([42]);
+
+    Http::assertSent(function ($r) {
+        if (! str_contains($r->url(), 'generativelanguage.googleapis.com')) {
+            return false;
+        }
+        $parts = $r->data()['contents'][0]['parts'];
+
+        return ! isset($parts[0]['inlineData'])
+            && str_contains($parts[0]['text'], 'zítra koupit mléko')
+            && str_contains($parts[1]['text'], 'typed note');
+    });
+
+    Http::assertSent(fn ($r) => $r->method() === 'PUT'
+        && str_contains($r->url(), '/projects/5/tasks')
+        && str_contains($r->data()['description'], 'Note:')
+        && str_contains($r->data()['description'], 'zítra koupit mléko'));
+
+    expect(Storage::disk('local')->allFiles())->toBe([]);
+});
+
+it('labels a typed note in Czech when locale is cs', function () {
+    config()->set('voice.locale', 'cs');
+    fakeApis(geminiPayload());
+    $recording = makeNote();
+
+    runJob($recording);
+
+    Http::assertSent(fn ($r) => $r->method() === 'PUT'
+        && str_contains($r->url(), '/projects/5/tasks')
+        && str_contains($r->data()['description'], 'Poznámka:'));
+});
+
+it('splits a typed note into several tasks with numbered note labels', function () {
+    fakeApis(multiTaskPayload(), taskIds: [101, 102, 103]);
+    $recording = makeNote('Koupit mléko a chleba, ideálně dnes. Další úkol. Zavolat doktorovi. Další úkol. Vyzvednout balík.');
+
+    runJob($recording);
+
+    $requests = createTaskRequests();
+    expect($requests)->toHaveCount(3)
+        ->and($requests[0]->data()['description'])->toContain('Note (task 1/3):')
+        ->and($requests[2]->data()['description'])->toContain('Vyzvednout balík')
+        ->and($recording->refresh()->vikunja_task_ids)->toBe([101, 102, 103]);
+});
+
+it('marks a typed note failed and notifies via failed hook', function () {
+    Http::fake(['ntfy.test/*' => Http::response('')]);
+    $recording = makeNote();
+
+    (new ProcessRecording($recording->id))->failed(new RuntimeException('Gemini API error: HTTP 500'));
+
+    expect($recording->refresh()->status)->toBe('failed')
+        ->and($recording->text)->toBe('zítra koupit mléko');
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'ntfy.test/topic')
+        && str_contains($r->body(), 'HTTP 500'));
 });

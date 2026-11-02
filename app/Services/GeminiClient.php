@@ -13,14 +13,43 @@ class GeminiClient
         array $labels,
         \DateTimeImmutable $now,
     ): array {
-        $model = config('voice.gemini.model');
-
         // Browsers record audio-only WebM that gets sniffed as video/webm;
         // Gemini then routes it to its video pipeline, which fails on a file
         // with zero video frames ("The video is corrupted", HTTP 400).
         if ($mimeType === 'video/webm') {
             $mimeType = 'audio/webm';
         }
+
+        return $this->generate(
+            ['inlineData' => ['mimeType' => $mimeType, 'data' => base64_encode($audioContents)]],
+            $this->userInstruction(),
+            $projects,
+            $labels,
+            $now,
+        );
+    }
+
+    /**
+     * Same extraction for a typed note: the text stands in for the audio and
+     * is its own verbatim transcript.
+     */
+    public function extractFromText(
+        string $text,
+        array $projects,
+        array $labels,
+        \DateTimeImmutable $now,
+    ): array {
+        return $this->generate(['text' => $text], $this->textInstruction(), $projects, $labels, $now);
+    }
+
+    private function generate(
+        array $input,
+        string $instruction,
+        array $projects,
+        array $labels,
+        \DateTimeImmutable $now,
+    ): array {
+        $model = config('voice.gemini.model');
 
         $response = Http::withHeaders(['x-goog-api-key' => config('voice.gemini.api_key')])
             ->timeout(120)
@@ -32,8 +61,8 @@ class GeminiClient
                 'contents' => [[
                     'role' => 'user',
                     'parts' => [
-                        ['inlineData' => ['mimeType' => $mimeType, 'data' => base64_encode($audioContents)]],
-                        ['text' => $this->userInstruction()],
+                        $input,
+                        ['text' => $instruction],
                     ],
                 ]],
                 'generationConfig' => [
@@ -95,6 +124,14 @@ class GeminiClient
         };
     }
 
+    private function textInstruction(): string
+    {
+        return match (config('voice.locale')) {
+            'cs' => 'Zpracuj tuto napsanou poznámku podle instrukcí.',
+            default => 'Process this typed note according to the instructions.',
+        };
+    }
+
     private function systemPrompt(array $projects, array $labels, \DateTimeImmutable $now): string
     {
         return match (config('voice.locale')) {
@@ -123,6 +160,8 @@ You are an assistant that turns voice notes dictated in English into tasks for t
 You will receive an audio recording. Your job is to:
 1. Transcribe it verbatim into the top-level `transcript` field (in English, without altering the content).
 2. Extract one or more tasks from it into the `tasks` array.
+
+Instead of a recording you may receive a typed note. Treat it exactly like a recording: its text is the verbatim transcript, copy it unchanged into `transcript`.
 
 Current date and time: {$nowText}, timezone {$timezone}.
 
@@ -169,6 +208,8 @@ Jsi asistent, který převádí česky diktované hlasové poznámky na úkoly p
 Dostaneš audio nahrávku. Tvým úkolem je:
 1. Doslovně ji přepsat do pole `transcript` (česky, bez úprav obsahu).
 2. Vytěžit z ní jeden nebo více úkolů do pole `tasks`.
+
+Místo nahrávky můžeš dostat napsanou poznámku. Zpracuj ji stejně jako nahrávku: její text je doslovný přepis, do pole `transcript` ho zkopíruj beze změny.
 
 Aktuální datum a čas: {$nowText}, časová zóna {$timezone}.
 

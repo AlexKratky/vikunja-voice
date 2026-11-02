@@ -22,6 +22,19 @@ Browser PWA ──POST /api/recordings──▶ Laravel ──▶ storage (priva
 3. Extracted project and label IDs are validated against your actual Vikunja data — the model cannot invent IDs. Each task is created with its part of the transcript preserved in its description (with a single task, the whole transcript).
 4. Optionally, a [ntfy](https://ntfy.sh/) notification confirms success or failure.
 
+A typed note (`POST /api/notes`) takes the same path: it is stored first, then the same job sends its text to Gemini instead of audio. The text is kept as the transcript, so the extraction rules (one task unless you write "new task", relative dates, project and label matching) are identical.
+
+## API
+
+Both endpoints require `Authorization: Bearer <APP_UPLOAD_TOKEN>` and answer `401` without it. They only accept work and never return recordings or notes back.
+
+| Endpoint | Body | Success |
+|---|---|---|
+| `POST /api/recordings` | `multipart/form-data`, field `audio`: WebM, Ogg, M4A/MP4, MP3 or WAV, max 20 MB | `202 {"id": "<uuid>"}` |
+| `POST /api/notes` | JSON `{"text": "..."}`, max 2000 characters | `202 {"id": "<uuid>"}` |
+
+Invalid input gets `422` with Laravel's JSON validation errors. A `202` means the item is stored and queued; the result arrives in Vikunja (and via ntfy) a few seconds later.
+
 ## Features
 
 - One-tap recorder PWA, installable on mobile, with browser-local history and retry
@@ -30,6 +43,7 @@ Browser PWA ──POST /api/recordings──▶ Laravel ──▶ storage (priva
 - Several tasks from one recording: say "new task" out loud and keep dictating; a change of topic alone never splits
 - Auto-assign every task to a configured user and/or auto-attach a configured label
 - Daily retention pruning of processed audio files
+- Typed notes over the same pipeline (`POST /api/notes`), e.g. from a dashboard or a script
 - Single-user by design: one shared upload token, no accounts, and the server exposes **no endpoint to read, list, or download recordings**
 
 ## Language
@@ -90,6 +104,7 @@ Applies to both variants below:
 - Set `APP_ENV=production` and `APP_DEBUG=false`. With debug enabled, any error page leaks stack traces and configuration — **including the API keys from `.env`**.
 - The web server document root must be the `public/` directory, never the repo root. Pointing it at the repo root would expose `.env`, the SQLite database, and the stored recordings.
 - Serve over HTTPS only.
+- Upgrading to the version with typed notes? The migration makes the audio `path` and `mime` columns nullable, which SQLite does by rebuilding the `recordings` table. Existing rows are copied as they are; a backup of `storage/database.sqlite` beforehand does not hurt.
 - Upgrading from a version with a single `vikunja_task_id` column? Back up `storage/database.sqlite` first: the migration moves the IDs into `vikunja_task_ids` and drops the old column.
 
 ### Coolify (Railpack build pack)
@@ -133,10 +148,10 @@ Scheduler (cron):
 
 ## Security & privacy
 
-- **Your audio is sent to Google Gemini** for transcription and extraction. If that is not acceptable to you, this tool is not for you.
+- **Your audio and typed notes are sent to Google Gemini** for transcription and extraction. If that is not acceptable to you, this tool is not for you.
 - Uploads are protected by a single bearer token compared with `hash_equals`; the endpoint fails closed when no token is configured. There are no accounts and no server-side way to read recordings back — the API only ever answers `202`/`4xx`.
 - Recording history lives only in your browser (IndexedDB), from the moment recording stops (marked as not sent until you send it); the upload token is kept in `localStorage`.
-- **Retention:** the daily `recordings:prune` command deletes audio files of *successfully processed* recordings after `RETENTION_DAYS`. Transcripts remain in the SQLite database and in the created Vikunja tasks. Audio of *failed* recordings is kept until you retry or delete it manually — by design, so nothing is lost.
+- **Retention:** the daily `recordings:prune` command deletes audio files of *successfully processed* recordings after `RETENTION_DAYS`. Transcripts and typed notes remain in the SQLite database and in the created Vikunja tasks. Audio of *failed* recordings is kept until you retry or delete it manually — by design, so nothing is lost.
 
 > [!WARNING]
 > **ntfy privacy.** On the public `ntfy.sh` server, the topic name is the only thing protecting your notifications — anyone who knows or guesses it can subscribe (and publish). Notifications include the extracted task title, and failure notifications can include error details. If you use ntfy, prefer a self-hosted instance or an [access-protected topic](https://docs.ntfy.sh/publish/#access-tokens), or at minimum use a long random topic name (`openssl rand -hex 16`) and consider `NTFY_NOTIFY_SUCCESS=false`. Leaving `NTFY_TOPIC` empty disables notifications entirely.

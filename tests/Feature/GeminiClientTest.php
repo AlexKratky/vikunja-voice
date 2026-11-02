@@ -223,3 +223,51 @@ it('throws on unparseable response', function () {
 
     (new GeminiClient)->extract('x', 'audio/webm', [], [], new DateTimeImmutable);
 })->throws(RuntimeException::class);
+
+it('sends a typed note as text instead of audio', function () {
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
+            'transcript' => 'koupit mléko', 'tasks' => [['title' => 'Koupit mléko', 'label_ids' => []]],
+        ])),
+    ]);
+
+    $result = (new GeminiClient)->extractFromText(
+        'koupit mléko',
+        projects: [['id' => 5, 'title' => 'Nákupy']],
+        labels: [],
+        now: new DateTimeImmutable('2026-08-06 14:32:00', new DateTimeZone('Europe/Prague')),
+    );
+
+    expect($result['tasks'][0]['title'])->toBe('Koupit mléko');
+
+    Http::assertSent(function ($request) {
+        $body = $request->data();
+        $parts = $body['contents'][0]['parts'];
+        $prompt = $body['systemInstruction']['parts'][0]['text'];
+
+        return $parts[0] === ['text' => 'koupit mléko']
+            && str_contains($parts[1]['text'], 'Process this typed note')
+            && str_contains($prompt, 'typed note')
+            && str_contains($prompt, 'Nákupy')
+            && str_contains($prompt, '2026-08-06')
+            && $body['generationConfig']['responseSchema']['required'] === ['transcript', 'tasks'];
+    });
+});
+
+it('uses the Czech instruction for a typed note when locale is cs', function () {
+    config()->set('voice.locale', 'cs');
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
+            'transcript' => 'x', 'tasks' => [['title' => 'x', 'label_ids' => []]],
+        ])),
+    ]);
+
+    (new GeminiClient)->extractFromText('x', [], [], new DateTimeImmutable);
+
+    Http::assertSent(function ($request) {
+        $body = $request->data();
+
+        return str_contains($body['systemInstruction']['parts'][0]['text'], 'napsanou poznámku')
+            && str_contains($body['contents'][0]['parts'][1]['text'], 'Zpracuj tuto napsanou poznámku');
+    });
+});

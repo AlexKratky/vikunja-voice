@@ -23,4 +23,16 @@ class RecordingFactory extends Factory
             'status' => 'pending',
         ];
     }
+
+    /**
+     * A typed note: text instead of an audio file.
+     */
+    public function note(string $text = 'zítra koupit mléko'): static
+    {
+        return $this->state(fn () => [
+            'path' => null,
+            'mime' => null,
+            'text' => $text,
+        ]);
+    }
 }
