@@ -1,5 +1,7 @@
 <?php
 
+use App\Jobs\KumaHeartbeat;
+use App\Services\KumaPush;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -9,3 +11,5 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('recordings:prune')->daily();
+
+Schedule::job(new KumaHeartbeat)->everyFiveMinutes()->when(KumaPush::enabled(...));

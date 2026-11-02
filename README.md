@@ -76,6 +76,7 @@ Then fill in `.env`:
 | `NTFY_TOPIC` | ntfy topic for notifications (empty = off) — **see the privacy note below** |
 | `NTFY_URL` | ntfy server, default `https://ntfy.sh` |
 | `NTFY_NOTIFY_SUCCESS` | also notify on success, default `true` |
+| `KUMA_PUSH_URL` | [Uptime Kuma](https://github.com/louislam/uptime-kuma) push monitor URL for the queue heartbeat (empty = off), see below |
 | `RETENTION_DAYS` | days after which processed audio is deleted (default 7) |
 | `VOICE_TIMEZONE` | timezone for due-date parsing, default `Europe/Prague` |
 | `SENTRY_LARAVEL_DSN` | Sentry DSN for backend error reporting (empty = off). A recording that exhausts all 5 processing attempts is reported as a `fatal` event tagged `terminal_failure: true` — point a Sentry alert rule at that tag. |
@@ -145,6 +146,7 @@ Scheduler (cron):
 - After 5 failed attempts the job lands in `failed_jobs` and a ntfy notification is sent (if configured). The audio stays on disk — failed recordings are never auto-deleted.
 - Reprocess: `php artisan queue:retry all`
 - Inspect: `php artisan queue:failed`
+- **Uptime Kuma heartbeat:** with `KUMA_PUSH_URL` set, the scheduler queues a small job every 5 minutes and the worker pushes to Kuma, so a push arrives only while both run. It reports `down` while `failed_jobs` is not empty, and the time the job waited in the queue as the ping. Create a *Push* monitor with a heartbeat interval of about 15 minutes and paste its URL as is.
 - Retries resume where they stopped: the Gemini extraction is stored before the first task is created and every task ID right after its creation, so a retry never calls Gemini again and never re-creates an existing task. Only a worker dying between the Vikunja call and the DB write can exceptionally duplicate a single task — nothing is ever lost; a duplicate always beats a lost note.
 
 ## Contributing

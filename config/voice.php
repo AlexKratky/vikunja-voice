@@ -24,4 +24,8 @@ return [
         'topic' => env('NTFY_TOPIC', ''),
         'notify_success' => (bool) env('NTFY_NOTIFY_SUCCESS', true),
     ],
+
+    'kuma' => [
+        'push_url' => env('KUMA_PUSH_URL', ''),
+    ],
 ];

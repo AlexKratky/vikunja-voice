@@ -5,6 +5,7 @@ return [
     'transcript_label_multi' => 'Transcript (task :index/:total)',
     'fallback_title' => 'Recording :time',
     'processing_failed' => 'Voice note processing failed',
+    'kuma_failed_jobs' => '{1} :count recording failed, see failed_jobs|[2,*] :count recordings failed, see failed_jobs',
 
     // Blade-only strings.
     'ui' => [
