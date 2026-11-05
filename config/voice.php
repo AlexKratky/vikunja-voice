@@ -25,6 +25,12 @@ return [
         'notify_success' => (bool) env('NTFY_NOTIFY_SUCCESS', true),
     ],
 
+    // Voice commands, each on unless switched off. A switched-off command is
+    // left out of the prompt, so its phrase is dictated as an ordinary task.
+    'commands' => [
+        'create_if_missing' => (bool) env('VOICE_COMMAND_CREATE_IF_MISSING', true),
+    ],
+
     'kuma' => [
         'push_url' => env('KUMA_PUSH_URL', ''),
     ],

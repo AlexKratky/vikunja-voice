@@ -49,6 +49,8 @@ it('passes through valid data', function () {
             'project_id' => 5,
             'label_ids' => [1, 2],
             'transcript' => 'nakoupit mléko',
+            'action' => 'create',
+            'search_terms' => [],
         ]],
     ]);
 });
@@ -158,4 +160,18 @@ it('falls back to default project for unknown or missing project', function () {
 it('drops unknown label ids', function () {
     expect(validate(['label_ids' => [1, 42, 9]])['label_ids'])->toBe([1, 9]);
     expect(validate(['label_ids' => null])['label_ids'])->toBe([]);
+});
+
+it('keeps create_if_missing and treats any other action as create', function () {
+    expect(validate(['action' => 'create_if_missing'])['action'])->toBe('create_if_missing');
+    expect(validate(['action' => 'create'])['action'])->toBe('create');
+    expect(validate(['action' => 'exists'])['action'])->toBe('create');
+    expect(validate(['action' => null])['action'])->toBe('create');
+    expect(validate()['action'])->toBe('create');
+});
+
+it('keeps up to five distinct search terms of at least three letters', function () {
+    expect(validate(['search_terms' => [' olej ', 'Olej', 'stůl', 'stol', 'na', 12, null, 'stůl', 'lak', 'dřevo', 'xxxlutz']])['search_terms'])
+        ->toBe(['olej', 'stůl', 'stol', 'lak', 'dřevo']);
+    expect(validate(['search_terms' => 'olej'])['search_terms'])->toBe([]);
 });

@@ -36,6 +36,28 @@ class VikunjaClient
         );
     }
 
+    /**
+     * Open tasks across all projects, newest first, at most one page (Vikunja
+     * caps it at its max_items_per_page, 50 by default). With a search, only
+     * tasks containing it in their title or description — as one substring,
+     * so pass single words.
+     */
+    public function openTasks(?string $search = null): array
+    {
+        $query = ['filter' => 'done = false', 'sort_by' => 'created', 'order_by' => 'desc', 'per_page' => 50];
+
+        if ($search !== null) {
+            $query['s'] = $search;
+        }
+
+        $tasks = $this->client()->get('/tasks', $query)->throw()->json() ?? [];
+
+        return array_map(
+            fn ($t) => ['id' => (int) $t['id'], 'title' => (string) $t['title'], 'project_id' => (int) $t['project_id']],
+            $tasks,
+        );
+    }
+
     public function createTask(int $projectId, array $payload): array
     {
         return $this->client()->put("/projects/{$projectId}/tasks", $payload)->throw()->json();

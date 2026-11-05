@@ -98,6 +98,32 @@ it('assigns a user via PUT', function () {
         && $r->data()['user_id'] === 1);
 });
 
+it('lists the newest open tasks across projects', function () {
+    Http::fake([
+        'vikunja.test/api/v1/tasks*' => Http::response([
+            ['id' => 147, 'title' => 'Koupit olej', 'project_id' => 1, 'done' => false, 'description' => '<p>x</p>'],
+            ['id' => 145, 'title' => 'Vypnout NASku', 'project_id' => 2, 'done' => false, 'description' => ''],
+        ]),
+    ]);
+
+    expect((new VikunjaClient)->openTasks())->toBe([
+        ['id' => 147, 'title' => 'Koupit olej', 'project_id' => 1],
+        ['id' => 145, 'title' => 'Vypnout NASku', 'project_id' => 2],
+    ]);
+
+    Http::assertSent(fn ($r) => $r->method() === 'GET'
+        && str_contains($r->url(), '/api/v1/tasks?')
+        && $r->data() === ['filter' => 'done = false', 'sort_by' => 'created', 'order_by' => 'desc', 'per_page' => 50]);
+});
+
+it('searches open tasks by a term', function () {
+    Http::fake(['vikunja.test/api/v1/tasks*' => Http::response('null')]);
+
+    expect((new VikunjaClient)->openTasks('olej'))->toBe([]);
+
+    Http::assertSent(fn ($r) => $r->data()['s'] === 'olej' && $r->data()['filter'] === 'done = false');
+});
+
 it('throws on error responses', function () {
     Http::fake(['vikunja.test/*' => Http::response('', 503)]);
 

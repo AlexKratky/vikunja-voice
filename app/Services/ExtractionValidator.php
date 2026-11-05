@@ -4,6 +4,12 @@ namespace App\Services;
 
 class ExtractionValidator
 {
+    /** What an item can do; `create` is the default and always available. */
+    public const ACTIONS = ['create', 'create_if_missing'];
+
+    /** Actions about an existing task, which has to be found first. */
+    public const LOOKUP_ACTIONS = ['create_if_missing'];
+
     /**
      * Sanitize a raw Gemini extraction into a whole-recording transcript plus
      * its tasks (none if nothing in it is a task). Framework-free on purpose:
@@ -91,6 +97,30 @@ class ExtractionValidator
             // Wire name is `transcript_segment`; `transcript` is accepted so the
             // flat old-shape fallback above carries the whole recording.
             'transcript' => trim((string) ($raw['transcript_segment'] ?? $raw['transcript'] ?? '')),
+            // Anything unexpected creates the task: a duplicate beats a lost note.
+            'action' => in_array($raw['action'] ?? null, self::ACTIONS, true) ? $raw['action'] : 'create',
+            'search_terms' => self::searchTerms($raw['search_terms'] ?? null),
         ];
+    }
+
+    /**
+     * Each term becomes one Vikunja substring search: one or two letters
+     * would match nearly every task, and a handful of terms is plenty.
+     *
+     * @return list<string>
+     */
+    private static function searchTerms(mixed $raw): array
+    {
+        $terms = [];
+
+        foreach (is_array($raw) ? $raw : [] as $term) {
+            $term = is_string($term) ? trim($term) : '';
+
+            if (mb_strlen($term) >= 3 && ! in_array(mb_strtolower($term), array_map(mb_strtolower(...), $terms), true)) {
+                $terms[] = $term;
+            }
+        }
+
+        return array_slice($terms, 0, 5);
     }
 }

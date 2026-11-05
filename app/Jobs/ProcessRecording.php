@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\Recording;
+use App\Services\ExistingTaskMatcher;
 use App\Services\ExtractionValidator;
 use App\Services\GeminiClient;
 use App\Services\Ntfy;
@@ -29,7 +30,7 @@ class ProcessRecording implements ShouldQueue
         return [30, 120, 600, 1800, 3600];
     }
 
-    public function handle(GeminiClient $gemini, VikunjaClient $vikunja, Ntfy $ntfy): void
+    public function handle(GeminiClient $gemini, VikunjaClient $vikunja, Ntfy $ntfy, ExistingTaskMatcher $matcher): void
     {
         $recording = Recording::find($this->recordingId);
 
@@ -40,10 +41,12 @@ class ProcessRecording implements ShouldQueue
         $recording->update(['status' => 'processing']);
 
         $extraction = $recording->extraction;
-        $createdIds = array_map(intval(...), $recording->vikunja_task_ids ?? []);
+        // One entry per item carried out: the task created or acted on, null
+        // when there is none. Its length is where a retry resumes.
+        $taskIds = array_map(fn ($id) => $id === null ? null : (int) $id, $recording->vikunja_task_ids ?? []);
 
         if (! is_array($extraction['tasks'] ?? null) || $extraction['tasks'] === []) {
-            if ($createdIds !== []) {
+            if ($taskIds !== []) {
                 // Tasks exist but the extraction is gone: running Gemini again
                 // could split differently and duplicate them. Fail loudly.
                 throw new \RuntimeException("Recording {$recording->id} has created tasks but no usable extraction");
@@ -60,55 +63,51 @@ class ProcessRecording implements ShouldQueue
             ]);
         }
 
+        // Decided and stored before anything is created: a retry neither asks
+        // again nor creates what was found to exist. Runs only on request,
+        // so a plain recording never reads the task list.
+        if (array_filter($extraction['tasks'], ExistingTaskMatcher::pending(...)) !== []) {
+            $extraction = $matcher->resolve($extraction);
+            $recording->update(['extraction' => $extraction]);
+        }
+
         $tasks = $extraction['tasks'];
         $total = count($tasks);
 
         if ($total === 0) {
             // Silence or nothing task-like. Sent even with success
             // notifications off: otherwise the note just vanishes.
-            $key = $recording->text !== null ? 'voice.no_tasks_note' : 'voice.no_tasks';
-            $ntfy->send('🤷 '.__($key, locale: config('voice.locale')));
+            $ntfy->send('🤷 '.$this->say($recording->text !== null ? 'no_tasks_note' : 'no_tasks'));
         }
 
-        for ($i = count($createdIds); $i < $total; $i++) {
+        for ($i = count($taskIds); $i < $total; $i++) {
             $task = $tasks[$i];
+            $existingId = $task['match']['task_id'] ?? null;
+            $description = $this->buildDescription(
+                $task['description'],
+                $this->transcriptFor($extraction, $i),
+                $i + 1,
+                $total,
+                $recording->text !== null,
+            );
 
-            $payload = [
-                'title' => $task['title'],
-                'description' => $this->buildDescription(
-                    $task['description'],
-                    $this->transcriptFor($extraction, $i),
-                    $i + 1,
-                    $total,
-                    $recording->text !== null,
-                ),
-                'priority' => $task['priority'],
-            ];
+            // Carry the item out; anything but a plain new task is announced
+            // even with success notifications off, since either nothing new
+            // shows up in Vikunja or the model picked the task acted on.
+            [$taskId, $message] = match ($task['action'] ?? 'create') {
+                'create_if_missing' => $existingId !== null
+                    ? [$existingId, '🔁 '.$this->say('task_exists', ['title' => $task['match']['title']])]
+                    : $this->create($vikunja, $task, $description),
+                default => $this->create($vikunja, $task, $description),
+            };
 
-            if ($task['due_date'] !== null) {
-                $payload['due_date'] = $task['due_date'];
-            }
+            // Record before notifying: a retry skips this item, so it is
+            // neither carried out nor announced twice.
+            $taskIds[] = $taskId;
+            $recording->update(['vikunja_task_ids' => $taskIds]);
 
-            $created = $vikunja->createTask($task['project_id'], $payload);
-            $taskId = (int) $created['id'];
-
-            foreach ($task['label_ids'] as $labelId) {
-                try {
-                    $vikunja->attachLabel($taskId, $labelId);
-                } catch (\Throwable $e) {
-                    Log::warning('Label attach failed', ['task' => $taskId, 'label' => $labelId, 'error' => $e->getMessage()]);
-                }
-            }
-
-            $this->autoAssign($vikunja, $taskId);
-
-            // Record the id before notifying: a retry skips this task, so it
-            // can neither be created nor announced twice.
-            $createdIds[] = $taskId;
-            $recording->update(['vikunja_task_ids' => $createdIds]);
-
-            if (config('voice.ntfy.notify_success')) {
-                $ntfy->send("✅ {$task['title']}", config('voice.vikunja.url')."/tasks/{$taskId}");
+            if ($message !== null) {
+                $ntfy->send($message, config('voice.vikunja.url').($taskId !== null ? "/tasks/{$taskId}" : ''));
             }
         }
 
@@ -182,6 +181,43 @@ class ProcessRecording implements ShouldQueue
         }
 
         return $extraction;
+    }
+
+    /**
+     * @return array{0: int, 1: ?string} the new task's id and its announcement
+     */
+    private function create(VikunjaClient $vikunja, array $task, string $description): array
+    {
+        $payload = [
+            'title' => $task['title'],
+            'description' => $description,
+            'priority' => $task['priority'],
+        ];
+
+        if ($task['due_date'] !== null) {
+            $payload['due_date'] = $task['due_date'];
+        }
+
+        $created = $vikunja->createTask($task['project_id'], $payload);
+        $taskId = (int) $created['id'];
+
+        foreach ($task['label_ids'] as $labelId) {
+            try {
+                $vikunja->attachLabel($taskId, $labelId);
+            } catch (\Throwable $e) {
+                Log::warning('Label attach failed', ['task' => $taskId, 'label' => $labelId, 'error' => $e->getMessage()]);
+            }
+        }
+
+        $this->autoAssign($vikunja, $taskId);
+
+        return [$taskId, config('voice.ntfy.notify_success') ? "✅ {$task['title']}" : null];
+    }
+
+    // Explicit locale: queue workers don't run the SetVoiceLocale HTTP middleware.
+    private function say(string $key, array $replace = []): string
+    {
+        return __("voice.{$key}", $replace, locale: config('voice.locale'));
     }
 
     private function withAutoLabel(array $labelIds, array $labels): array

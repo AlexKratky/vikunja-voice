@@ -41,12 +41,44 @@ class GeminiClient
         return $this->generate(['text' => $text], $projects, $labels, $now);
     }
 
+    /**
+     * Decide which new tasks already exist among the open ones. Text only,
+     * and one English prompt serves every locale: the input is the model's
+     * own extraction and only the ids it returns are acted on.
+     *
+     * @param  list<array{title: string, description: string}>  $tasks
+     * @param  list<array{id: int, title: string, project: string}>  $openTasks
+     */
+    public function matchExisting(array $tasks, array $openTasks): array
+    {
+        $newList = implode("\n", array_map(
+            fn ($task, $i) => ($i + 1).". {$task['title']}".($task['description'] !== '' ? " — {$task['description']}" : ''),
+            $tasks,
+            array_keys($tasks),
+        ));
+        $openList = implode("\n", array_map(
+            fn ($task) => "- {$task['id']}: {$task['title']} [{$task['project']}]",
+            $openTasks,
+        ));
+
+        return $this->request(
+            self::MATCH_PROMPT,
+            ['text' => "New tasks:\n{$newList}\n\nOpen tasks:\n{$openList}"],
+            self::MATCH_SCHEMA,
+        );
+    }
+
     private function generate(
         array $input,
         array $projects,
         array $labels,
         \DateTimeImmutable $now,
     ): array {
+        return $this->request($this->systemPrompt($projects, $labels, $now), $input, $this->responseSchema());
+    }
+
+    private function request(string $systemPrompt, array $input, array $schema): array
+    {
         $model = config('voice.gemini.model');
 
         $response = Http::withHeaders(['x-goog-api-key' => config('voice.gemini.api_key')])
@@ -54,7 +86,7 @@ class GeminiClient
             ->asJson()
             ->post('https://generativelanguage.googleapis.com/v1beta/models/'.$model.':generateContent', [
                 'systemInstruction' => [
-                    'parts' => [['text' => $this->systemPrompt($projects, $labels, $now)]],
+                    'parts' => [['text' => $systemPrompt]],
                 ],
                 // The input is the whole user turn: a "process this note"
                 // text part beside it got transcribed as if it were spoken,
@@ -65,7 +97,7 @@ class GeminiClient
                 ]],
                 'generationConfig' => [
                     'responseMimeType' => 'application/json',
-                    'responseSchema' => self::RESPONSE_SCHEMA,
+                    'responseSchema' => $schema,
                 ],
             ]);
 
@@ -79,7 +111,7 @@ class GeminiClient
         $decoded = is_string($text) ? json_decode($text, true) : null;
 
         if (! is_array($decoded)) {
-            throw new \RuntimeException('Gemini returned unparseable extraction: '.substr((string) $text, 0, 200));
+            throw new \RuntimeException('Gemini returned unparseable JSON: '.substr((string) $text, 0, 200));
         }
 
         return $decoded;
@@ -92,28 +124,125 @@ class GeminiClient
         'type' => 'OBJECT',
         'properties' => [
             'transcript_segment' => ['type' => 'STRING', 'nullable' => true],
+            'action' => ['type' => 'STRING', 'format' => 'enum', 'enum' => ExtractionValidator::ACTIONS],
             'title' => ['type' => 'STRING'],
             'description' => ['type' => 'STRING', 'nullable' => true],
             'due_date' => ['type' => 'STRING', 'nullable' => true],
             'priority' => ['type' => 'INTEGER', 'nullable' => true],
             'project_id' => ['type' => 'INTEGER', 'nullable' => true],
             'label_ids' => ['type' => 'ARRAY', 'items' => ['type' => 'INTEGER']],
+            'search_terms' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
         ],
-        'required' => ['title', 'label_ids'],
-        'propertyOrdering' => ['transcript_segment', 'title', 'description', 'due_date', 'priority', 'project_id', 'label_ids'],
+        'required' => ['action', 'title', 'label_ids', 'search_terms'],
+        'propertyOrdering' => ['transcript_segment', 'action', 'title', 'description', 'due_date', 'priority', 'project_id', 'label_ids', 'search_terms'],
     ];
 
     // Whole transcript first, tasks derived from it second. `tasks` may be
     // empty: forcing at least one made the model invent a task from silence.
-    private const RESPONSE_SCHEMA = [
+    private function responseSchema(): array
+    {
+        return [
+            'type' => 'OBJECT',
+            'properties' => [
+                'transcript' => ['type' => 'STRING'],
+                'tasks' => ['type' => 'ARRAY', 'items' => $this->taskSchema()],
+            ],
+            'required' => ['transcript', 'tasks'],
+            'propertyOrdering' => ['transcript', 'tasks'],
+        ];
+    }
+
+    /**
+     * With every command switched off the model sees neither `action` nor
+     * `search_terms`: the schema is the plain task one.
+     */
+    private function taskSchema(): array
+    {
+        $schema = self::TASK_SCHEMA;
+        $schema['properties']['action']['enum'] = $this->actions();
+        $off = $this->actions() === ['create'] ? ['action', 'search_terms'] : [];
+
+        foreach ($off as $key) {
+            unset($schema['properties'][$key]);
+        }
+        $schema['required'] = array_values(array_diff($schema['required'], $off));
+        $schema['propertyOrdering'] = array_values(array_diff($schema['propertyOrdering'], $off));
+
+        return $schema;
+    }
+
+    /**
+     * What the model may do with an item: `create` always, every other action
+     * only while its command is switched on (`voice.commands`).
+     *
+     * @return list<string>
+     */
+    private function actions(): array
+    {
+        return array_values(array_filter(
+            ExtractionValidator::ACTIONS,
+            fn (string $action) => $action === 'create' || (bool) config("voice.commands.{$action}"),
+        ));
+    }
+
+    /**
+     * The `action` and `search_terms` rules plus examples for the switched-on
+     * commands only, so a switched-off command leaves no trace in the prompt
+     * and its phrase gets dictated as an ordinary task.
+     *
+     * @param  array{intro: string, actions: array<string, string>, outro: string, search_terms: string, examples: array<string, string>}  $text
+     * @param  \Closure(string): string  $quote
+     * @return array{0: string, 1: string} rules, examples — each empty or starting with a newline
+     */
+    private function commandPrompt(array $text, \Closure $quote): array
+    {
+        $actions = $this->actions();
+
+        if ($actions === ['create']) {
+            return ['', ''];
+        }
+
+        $searched = array_values(array_intersect(ExtractionValidator::LOOKUP_ACTIONS, $actions));
+        $rules = [
+            $text['intro'],
+            ...array_map(fn ($action) => '  - '.$quote($action).': '.$text['actions'][$action], $actions),
+            '  '.$text['outro'],
+            str_replace(':actions', implode(', ', array_map($quote, $searched)), $text['search_terms']),
+        ];
+        $examples = array_map(fn ($action) => $text['examples'][$action], array_slice($actions, 1));
+
+        return ["\n".implode("\n", $rules), "\n".implode("\n", $examples)];
+    }
+
+    // The reason comes before the id so the decision follows from it.
+    private const MATCH_SCHEMA = [
         'type' => 'OBJECT',
         'properties' => [
-            'transcript' => ['type' => 'STRING'],
-            'tasks' => ['type' => 'ARRAY', 'items' => self::TASK_SCHEMA],
+            'decisions' => [
+                'type' => 'ARRAY',
+                'items' => [
+                    'type' => 'OBJECT',
+                    'properties' => [
+                        'task' => ['type' => 'INTEGER'],
+                        'reason' => ['type' => 'STRING'],
+                        'existing_task_id' => ['type' => 'INTEGER', 'nullable' => true],
+                    ],
+                    'required' => ['task', 'reason', 'existing_task_id'],
+                    'propertyOrdering' => ['task', 'reason', 'existing_task_id'],
+                ],
+            ],
         ],
-        'required' => ['transcript', 'tasks'],
-        'propertyOrdering' => ['transcript', 'tasks'],
+        'required' => ['decisions'],
     ];
+
+    private const MATCH_PROMPT = <<<'PROMPT'
+You check whether tasks the user has just dictated already exist among their open tasks in the Vikunja app.
+
+The user message lists the new tasks (numbered, title — description) and the user's open tasks (id: title [project]). Return one decision for every new task:
+- `task`: the number of the new task.
+- `reason`: one short sentence explaining the decision.
+- `existing_task_id`: the id of the open task that is the same piece of work — the same action on the same thing, even when it is worded differently, inflected, abbreviated, more or less detailed, in another language or in another project. A task that only shares the topic or the object but means a different action, or is a follow-up step, is NOT the same. If no open task is the same, or you are unsure, null: a duplicate task is a much smaller harm than a task that never gets created. Never return an id that is not in the list.
+PROMPT;
 
     private function systemPrompt(array $projects, array $labels, \DateTimeImmutable $now): string
     {
@@ -130,12 +259,45 @@ class GeminiClient
         )) ?: "- ({$emptyText})";
     }
 
+    private function englishCommands(): array
+    {
+        return [
+            'intro' => '- `action`: what to do with this item. Besides dictating tasks, the speaker can give these commands:',
+            'actions' => [
+                'create' => 'a new task — the default for everything that is not one of the commands below.',
+                'create_if_missing' => 'create the task only if it does not exist yet ("create a task if it doesn\'t exist", "only if it doesn\'t exist yet", "unless it already exists", "if I don\'t have it yet", or an obvious variant). The fields are those of a new task. The phrase belongs to the task it is said with; said once for all tasks (e.g. "create these if they don\'t exist yet"), it applies to all of them.',
+            ],
+            'outro' => 'The command phrase itself belongs to no field, just like the "new task" cue. A different command starts a new item even without the "new task" cue, and a command is an item even when no task gets created. A task that merely mentions another task is not a command.',
+            'search_terms' => '- `search_terms`: with :actions — 2 to 5 keywords to find the existing task by: the distinctive words of the task, each a single word cut down to its stem so other forms match too, plus an obvious synonym (e.g. "invoices" → "invoice"; "the dentist\'s" → "dentist"). Each term is searched separately as a substring of task titles and descriptions. With "create" an empty array.',
+            'examples' => [
+                'create_if_missing' => '- "Create a task if it doesn\'t exist: renew the car insurance" → ONE item: action "create_if_missing", title "Renew car insurance", search_terms ["insurance", "car", "renew"], description = null.',
+            ],
+        ];
+    }
+
+    private function czechCommands(): array
+    {
+        return [
+            'intro' => '- `action`: co s položkou udělat. Kromě diktování úkolů může mluvčí dávat tyto příkazy:',
+            'actions' => [
+                'create' => 'nový úkol — výchozí pro vše, co není žádný z příkazů níže.',
+                'create_if_missing' => 'založ úkol jen pokud ještě neexistuje („založ úkol, pokud neexistuje", „pokud ještě neexistuje", „jestli ho tam ještě nemám", „pokud už tam není", nebo zjevná varianta). Pole jsou jako u nového úkolu. Fráze patří k úkolu, u kterého zazní; řekne-li ji mluvčí jednou pro všechny úkoly (např. „založ tyhle úkoly, pokud neexistujou"), platí pro všechny.',
+            ],
+            'outro' => 'Samotná fráze příkazu nepatří do žádného pole, stejně jako fráze o novém úkolu. Jiný příkaz začíná novou položku i bez fráze o novém úkolu a příkaz je položka, i když se žádný úkol nezakládá. Úkol, který jen zmiňuje jiný úkol, není příkaz.',
+            'search_terms' => '- `search_terms`: u :actions — 2 až 5 klíčových slov, podle kterých se existující úkol najde: výstižná slova úkolu, každé jako jedno slovo zkrácené na kořen bez koncovky, aby se našly i jiné tvary; když se kořen v jiných tvarech mění, uveď oba (např. „stůl" → „stůl" a „stol"; „fakturu" → „faktur"; „doktorovi" → „doktor"), případně zjevné synonymum („doktor" → „lékař"). Každé slovo se hledá samostatně jako podřetězec v názvu a popisu úkolů. U „create" prázdné pole.',
+            'examples' => [
+                'create_if_missing' => '- „Založ úkol, pokud neexistuje: koupit olej na stůl" → JEDNA položka: action „create_if_missing", title „Koupit olej na stůl", search_terms [„olej", „stůl", „stol"], description = null.',
+            ],
+        ];
+    }
+
     private function englishPrompt(array $projects, array $labels, \DateTimeImmutable $now): string
     {
         $projectList = $this->formatList($projects, 'no projects');
         $labelList = $this->formatList($labels, 'no labels');
         $nowText = $now->format('Y-m-d, l, j. n. Y H:i (P)');
         $timezone = config('voice.timezone');
+        [$commandRules, $commandExamples] = $this->commandPrompt($this->englishCommands(), fn ($action) => "\"{$action}\"");
 
         return <<<PROMPT
 You are an assistant that turns voice notes dictated in English into tasks for the Vikunja app.
@@ -169,14 +331,14 @@ Rules for each task:
 - `priority`: 0–5 on the Vikunja scale — 1 low, 2 medium, 3 high, 4 urgent, 5 "do it now/ASAP". If no priority is mentioned, null.
 - `project_id`: the id of the project from the list that best matches a mention in the recording (names may be mispronounced or approximate). If no project is mentioned or you are unsure, null.
 - `label_ids`: ids of labels from the list that the speaker mentions. Never invent ids outside the list. If none, an empty array.
-- `transcript_segment`: the verbatim part of the recording this task comes from, without the cue phrase. With a single task leave it null — the whole transcript is used.
+- `transcript_segment`: the verbatim part of the recording this task comes from, without the cue phrase. With a single task leave it null — the whole transcript is used.{$commandRules}
 
 Examples (they only illustrate the rules — their content never belongs in your output):
 - "Add fixing the deploy script to RETech, by Friday, it's urgent" → one task: title "Fix deploy script", project_id = id of the RETech project (if it exists), due_date = nearest Friday 23:59, priority = 4, description = null (everything is already in the other fields).
 - "Call the doctor tomorrow morning about, uh, about the appointment" → one task: title "Call the doctor", description "About the appointment", due_date = tomorrow 09:00, priority = null.
 - "Sometime buy a new laptop cable" → one task: title "Buy a new laptop cable", description = null, due_date = null, priority = null, project_id = null.
 - "Buy milk and bread, today ideally. New task. Call the doctor about the appointment, it's urgent" → two tasks, because the speaker said "new task": 1) title "Buy milk and bread", due_date = today 23:59, transcript_segment "Buy milk and bread, today ideally"; 2) title "Call the doctor", description "About the appointment", priority = 4, transcript_segment "Call the doctor about the appointment, it's urgent".
-- "Buy milk and bread and also call the doctor about the appointment" → ONE task (no cue phrase was said), e.g. title "Buy milk and bread and call the doctor".
+- "Buy milk and bread and also call the doctor about the appointment" → ONE task (no cue phrase was said), e.g. title "Buy milk and bread and call the doctor".{$commandExamples}
 - Silence, noise, or just "uh… testing" → `transcript` "", `tasks` [].
 PROMPT;
     }
@@ -187,6 +349,7 @@ PROMPT;
         $labelList = $this->formatList($labels, 'žádné štítky');
         $nowText = $now->format('Y-m-d, l, j. n. Y H:i (P)');
         $timezone = config('voice.timezone');
+        [$commandRules, $commandExamples] = $this->commandPrompt($this->czechCommands(), fn ($action) => "„{$action}\"");
 
         return <<<PROMPT
 Jsi asistent, který převádí česky diktované hlasové poznámky na úkoly pro aplikaci Vikunja.
@@ -220,14 +383,14 @@ Pravidla pro každý úkol:
 - `priority`: 0–5 podle Vikunja škály — 1 nízká, 2 střední, 3 vysoká, 4 urgentní, 5 „okamžitě/ASAP". Pokud priorita nezazní, null.
 - `project_id`: id projektu ze seznamu, který nejlépe odpovídá zmínce v nahrávce (názvy mohou být zkomolené nebo skloňované). Pokud žádný projekt nezazní nebo si nejsi jistý, null.
 - `label_ids`: id štítků ze seznamu, které mluvčí zmíní. Nikdy nevymýšlej id mimo seznam. Pokud žádné, prázdné pole.
-- `transcript_segment`: doslovná část nahrávky, ze které tento úkol vznikl, bez fráze o novém úkolu. Pokud je úkol jen jeden, nech null — použije se celý přepis.
+- `transcript_segment`: doslovná část nahrávky, ze které tento úkol vznikl, bez fráze o novém úkolu. Pokud je úkol jen jeden, nech null — použije se celý přepis.{$commandRules}
 
 Příklady (jen ilustrují pravidla — jejich obsah do výstupu nikdy nepatří):
 - „Hoď mi do retechu opravit deploy skript, do pátku, je to urgentní" → jeden úkol: title „Opravit deploy skript", project_id = id projektu RETech (pokud existuje), due_date = nejbližší pátek 23:59, priority = 4, description = null (vše už je v ostatních polích).
 - „Zítra ráno zavolat doktorovi kvůli, ehm, kvůli objednání" → jeden úkol: title „Zavolat doktorovi", description „Kvůli objednání", due_date = zítra 09:00, priority = null.
 - „Někdy koupit nový kabel k notebooku" → jeden úkol: title „Koupit nový kabel k notebooku", description = null, due_date = null, priority = null, project_id = null.
 - „Koupit mléko a chleba, ideálně dnes. Založ další úkol. Zavolat doktorovi kvůli objednání, je to urgentní" → dva úkoly, protože zaznělo „založ další úkol": 1) title „Koupit mléko a chleba", due_date = dnes 23:59, transcript_segment „Koupit mléko a chleba, ideálně dnes"; 2) title „Zavolat doktorovi", description „Kvůli objednání", priority = 4, transcript_segment „Zavolat doktorovi kvůli objednání, je to urgentní".
-- „Koupit mléko a chleba a taky zavolat doktorovi kvůli objednání" → JEDEN úkol (žádná fráze o novém úkolu nezazněla), např. title „Koupit mléko a chleba a zavolat doktorovi".
+- „Koupit mléko a chleba a taky zavolat doktorovi kvůli objednání" → JEDEN úkol (žádná fráze o novém úkolu nezazněla), např. title „Koupit mléko a chleba a zavolat doktorovi".{$commandExamples}
 - Ticho, šum nebo jen „ehm… zkouška" → `transcript` "", `tasks` [].
 PROMPT;
     }

@@ -154,9 +154,12 @@ it('requests a whole transcript plus an ordered list of tasks that may be empty'
             && $schema['propertyOrdering'] === ['transcript', 'tasks']
             && $schema['properties']['tasks']['type'] === 'ARRAY'
             && ! array_key_exists('minItems', $schema['properties']['tasks'])
-            && $task['required'] === ['title', 'label_ids']
+            && $task['required'] === ['action', 'title', 'label_ids', 'search_terms']
             && $task['propertyOrdering'][0] === 'transcript_segment'
-            && $task['properties']['transcript_segment'] === ['type' => 'STRING', 'nullable' => true];
+            && $task['propertyOrdering'][1] === 'action'
+            && $task['properties']['transcript_segment'] === ['type' => 'STRING', 'nullable' => true]
+            && $task['properties']['action']['enum'] === ['create', 'create_if_missing']
+            && $task['properties']['search_terms'] === ['type' => 'ARRAY', 'items' => ['type' => 'STRING']];
     });
 });
 
@@ -226,6 +229,90 @@ it('tells the model to return no task for silence instead of making one up', fun
     'en' => ['en', ['never these instructions', 'an empty `tasks` array', 'Never make up a task', '`tasks` [].']],
     'cs' => ['cs', ['nikdy ne tyto instrukce', 'prázdné pole `tasks`', 'Nikdy si úkol nevymýšlej', '`tasks` [].']],
 ]);
+
+it('explains the create-if-missing command and its search terms', function (string $locale, array $phrases) {
+    config()->set('voice.locale', $locale);
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => Http::response(geminiResponse(['transcript' => '', 'tasks' => []])),
+    ]);
+
+    (new GeminiClient)->extract('x', 'audio/webm', [], [], new DateTimeImmutable);
+
+    Http::assertSent(function ($request) use ($phrases) {
+        $prompt = $request->data()['systemInstruction']['parts'][0]['text'];
+
+        foreach ([...$phrases, '`action`', '`search_terms`', 'create_if_missing'] as $phrase) {
+            if (! str_contains($prompt, $phrase)) {
+                return false;
+            }
+        }
+
+        return true;
+    });
+})->with([
+    'en' => ['en', ['"create a task if it doesn\'t exist"', 'cut down to its stem']],
+    'cs' => ['cs', ['„založ úkol, pokud neexistuje"', 'zkrácené na kořen']],
+]);
+
+it('leaves a switched-off command out of the prompt and the schema', function (string $locale) {
+    config()->set('voice.locale', $locale);
+    config()->set('voice.commands.create_if_missing', false);
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => Http::response(geminiResponse(['transcript' => '', 'tasks' => []])),
+    ]);
+
+    (new GeminiClient)->extract('x', 'audio/webm', [], [], new DateTimeImmutable);
+
+    Http::assertSent(function ($request) {
+        $prompt = $request->data()['systemInstruction']['parts'][0]['text'];
+        $task = $request->data()['generationConfig']['responseSchema']['properties']['tasks']['items'];
+
+        return ! str_contains($prompt, 'create_if_missing')
+            && ! str_contains($prompt, '`action`')
+            && ! str_contains($prompt, '`search_terms`')
+            && ! array_key_exists('action', $task['properties'])
+            && ! array_key_exists('search_terms', $task['properties'])
+            && $task['required'] === ['title', 'label_ids']
+            && ! in_array('action', $task['propertyOrdering'], true);
+    });
+})->with(['en', 'cs']);
+
+it('asks which new tasks already exist with a text-only request', function () {
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
+            'decisions' => [['task' => 1, 'reason' => 'Same purchase', 'existing_task_id' => 147]],
+        ])),
+    ]);
+
+    $result = (new GeminiClient)->matchExisting(
+        [
+            ['title' => 'Koupit olej na stůl', 'description' => ''],
+            ['title' => 'Zavolat doktorovi', 'description' => 'Kvůli objednání'],
+        ],
+        [
+            ['id' => 147, 'title' => 'Koupit olej na olejování stolu', 'project' => 'Inbox'],
+            ['id' => 145, 'title' => 'Vypnout NASku', 'project' => 'Domov'],
+        ],
+    );
+
+    expect($result['decisions'][0]['existing_task_id'])->toBe(147);
+
+    Http::assertSent(function ($request) {
+        $body = $request->data();
+        $schema = $body['generationConfig']['responseSchema'];
+        $decision = $schema['properties']['decisions']['items'];
+
+        return $body['contents'][0]['parts'] === [['text' => "New tasks:\n"
+            ."1. Koupit olej na stůl\n"
+            ."2. Zavolat doktorovi — Kvůli objednání\n\n"
+            ."Open tasks:\n"
+            ."- 147: Koupit olej na olejování stolu [Inbox]\n"
+            .'- 145: Vypnout NASku [Domov]']]
+            && str_contains($body['systemInstruction']['parts'][0]['text'], 'Never return an id that is not in the list')
+            && $decision['propertyOrdering'] === ['task', 'reason', 'existing_task_id']
+            && $decision['properties']['existing_task_id'] === ['type' => 'INTEGER', 'nullable' => true];
+    });
+});
 
 it('throws on HTTP error', function () {
     Http::fake(['generativelanguage.googleapis.com/*' => Http::response('', 500)]);
