@@ -130,13 +130,14 @@ class GeminiClient
             'title' => ['type' => 'STRING'],
             'description' => ['type' => 'STRING', 'nullable' => true],
             'due_date' => ['type' => 'STRING', 'nullable' => true],
+            'reminders' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
             'priority' => ['type' => 'INTEGER', 'nullable' => true],
             'project_id' => ['type' => 'INTEGER', 'nullable' => true],
             'label_ids' => ['type' => 'ARRAY', 'items' => ['type' => 'INTEGER']],
             'search_terms' => ['type' => 'ARRAY', 'items' => ['type' => 'STRING']],
         ],
-        'required' => ['action', 'title', 'label_ids', 'search_terms'],
-        'propertyOrdering' => ['transcript_segment', 'action', 'title', 'description', 'due_date', 'priority', 'project_id', 'label_ids', 'search_terms'],
+        'required' => ['action', 'title', 'label_ids', 'search_terms', 'reminders'],
+        'propertyOrdering' => ['transcript_segment', 'action', 'title', 'description', 'due_date', 'reminders', 'priority', 'project_id', 'label_ids', 'search_terms'],
     ];
 
     // Whole transcript first, tasks derived from it second. `tasks` may be
@@ -155,14 +156,17 @@ class GeminiClient
     }
 
     /**
-     * With every command switched off the model sees neither `action` nor
-     * `search_terms`: the schema is the plain task one.
+     * A switched-off command leaves its fields out: with every command off
+     * the schema is the plain task one.
      */
     private function taskSchema(): array
     {
         $schema = self::TASK_SCHEMA;
         $schema['properties']['action']['enum'] = $this->actions();
-        $off = $this->actions() === ['create'] ? ['action', 'search_terms'] : [];
+        $off = [
+            ...($this->actions() === ['create'] ? ['action', 'search_terms'] : []),
+            ...(config('voice.commands.reminders') ? [] : ['reminders']),
+        ];
 
         foreach ($off as $key) {
             unset($schema['properties'][$key]);
@@ -264,9 +268,21 @@ PROMPT;
         )) ?: "- ({$emptyText})";
     }
 
+    /**
+     * @return array{0: string, 1: string} rule, example — each empty or starting with a newline
+     */
+    private function reminderPrompt(array $text): array
+    {
+        return config('voice.commands.reminders')
+            ? ["\n".$text['reminders'], "\n".$text['reminders_example']]
+            : ['', ''];
+    }
+
     private function englishCommands(): array
     {
         return [
+            'reminders' => '- `reminders`: when the speaker asks to be reminded ("remind me tomorrow at 9", "remind me an hour before"), the times to remind them at, in the same format as `due_date`; count relative ones ("an hour before") from `due_date`, and if no time of day is mentioned, use 09:00. Asking for a reminder sets no deadline by itself. If none, an empty array.',
+            'reminders_example' => '- "Remind me tomorrow at 9 to call the doctor" → one task: title "Call the doctor", reminders [tomorrow 09:00], due_date = null.',
             'intro' => '- `action`: what to do with this item. Besides dictating tasks, the speaker can give these commands:',
             'actions' => [
                 'create' => 'a new task — the default for everything that is not one of the commands below.',
@@ -287,6 +303,8 @@ PROMPT;
     private function czechCommands(): array
     {
         return [
+            'reminders' => '- `reminders`: když si mluvčí řekne o připomenutí („připomeň mi zítra v 9", „připomeň mi to hodinu předem"), časy připomenutí ve stejném formátu jako `due_date`; relativní („hodinu předem") počítej od `due_date`, a když čas nezazní, použij 09:00. Samotná žádost o připomenutí termín nenastavuje. Pokud žádné, prázdné pole.',
+            'reminders_example' => '- „Připomeň mi zítra v devět zavolat doktorovi" → jeden úkol: title „Zavolat doktorovi", reminders [zítra 09:00], due_date = null.',
             'intro' => '- `action`: co s položkou udělat. Kromě diktování úkolů může mluvčí dávat tyto příkazy:',
             'actions' => [
                 'create' => 'nový úkol — výchozí pro vše, co není žádný z příkazů níže.',
@@ -311,6 +329,7 @@ PROMPT;
         $nowText = $now->format('Y-m-d, l, j. n. Y H:i (P)');
         $timezone = config('voice.timezone');
         [$commandRules, $commandExamples] = $this->commandPrompt($this->englishCommands(), fn ($action) => "\"{$action}\"");
+        [$reminderRule, $reminderExample] = $this->reminderPrompt($this->englishCommands());
 
         return <<<PROMPT
 You are an assistant that turns voice notes dictated in English into tasks for the Vikunja app.
@@ -340,7 +359,7 @@ How many tasks:
 Rules for each task:
 - `title`: a short, descriptive task name (not the whole transcript).
 - `description`: a concise, cleaned-up version of what the speaker said about this task — drop filler words, hesitations, false starts and repetitions, and drop anything already captured in another field (deadline or time, priority, project, labels). If nothing is left, null.
-- `due_date`: deadline in RFC3339 format with timezone offset (e.g. 2026-08-08T23:59:00+02:00). Resolve relative expressions ("tomorrow", "by Friday", "next week") against the current date. If the speaker doesn't mention a time of day, use 23:59. If no deadline is mentioned, null.
+- `due_date`: deadline in RFC3339 format with timezone offset (e.g. 2026-08-08T23:59:00+02:00). Resolve relative expressions ("tomorrow", "by Friday", "next week") against the current date. If the speaker doesn't mention a time of day, use 23:59. If no deadline is mentioned, null.{$reminderRule}
 - `priority`: 0–5 on the Vikunja scale — 1 low, 2 medium, 3 high, 4 urgent, 5 "do it now/ASAP". If no priority is mentioned, null.
 - `project_id`: the id of the project from the list that best matches a mention in the recording (names may be mispronounced or approximate). If no project is mentioned or you are unsure, null.
 - `label_ids`: ids of labels from the list that the speaker mentions. Never invent ids outside the list. If none, an empty array.
@@ -351,7 +370,7 @@ Examples (they only illustrate the rules — their content never belongs in your
 - "Call the doctor tomorrow morning about, uh, about the appointment" → one task: title "Call the doctor", description "About the appointment", due_date = tomorrow 09:00, priority = null.
 - "Sometime buy a new laptop cable" → one task: title "Buy a new laptop cable", description = null, due_date = null, priority = null, project_id = null.
 - "Buy milk and bread, today ideally. New task. Call the doctor about the appointment, it's urgent" → two tasks, because the speaker said "new task": 1) title "Buy milk and bread", due_date = today 23:59, transcript_segment "Buy milk and bread, today ideally"; 2) title "Call the doctor", description "About the appointment", priority = 4, transcript_segment "Call the doctor about the appointment, it's urgent".
-- "Buy milk and bread and also call the doctor about the appointment" → ONE task (no cue phrase was said), e.g. title "Buy milk and bread and call the doctor".{$commandExamples}
+- "Buy milk and bread and also call the doctor about the appointment" → ONE task (no cue phrase was said), e.g. title "Buy milk and bread and call the doctor".{$reminderExample}{$commandExamples}
 - Silence, noise, or just "uh… testing" → `transcript` "", `tasks` [].
 PROMPT;
     }
@@ -363,6 +382,7 @@ PROMPT;
         $nowText = $now->format('Y-m-d, l, j. n. Y H:i (P)');
         $timezone = config('voice.timezone');
         [$commandRules, $commandExamples] = $this->commandPrompt($this->czechCommands(), fn ($action) => "„{$action}\"");
+        [$reminderRule, $reminderExample] = $this->reminderPrompt($this->czechCommands());
 
         return <<<PROMPT
 Jsi asistent, který převádí česky diktované hlasové poznámky na úkoly pro aplikaci Vikunja.
@@ -392,7 +412,7 @@ Kolik úkolů:
 Pravidla pro každý úkol:
 - `title`: krátký výstižný název úkolu (ne celý přepis).
 - `description`: stručný, vyčištěný obsah toho, co k úkolu zaznělo — vynech vatu, zaváhání, opravy a opakování a vynech i to, co už je zachyceno v jiném poli (termín nebo čas, priorita, projekt, štítky). Pokud nic nezbude, null.
-- `due_date`: termín ve formátu RFC3339 s časovou zónou (např. 2026-08-08T23:59:00+02:00). Relativní výrazy („zítra", „do pátku", „příští týden") přepočti podle aktuálního data. Pokud mluvčí nezmíní čas, použij 23:59. Pokud termín nezazní, null.
+- `due_date`: termín ve formátu RFC3339 s časovou zónou (např. 2026-08-08T23:59:00+02:00). Relativní výrazy („zítra", „do pátku", „příští týden") přepočti podle aktuálního data. Pokud mluvčí nezmíní čas, použij 23:59. Pokud termín nezazní, null.{$reminderRule}
 - `priority`: 0–5 podle Vikunja škály — 1 nízká, 2 střední, 3 vysoká, 4 urgentní, 5 „okamžitě/ASAP". Pokud priorita nezazní, null.
 - `project_id`: id projektu ze seznamu, který nejlépe odpovídá zmínce v nahrávce (názvy mohou být zkomolené nebo skloňované). Pokud žádný projekt nezazní nebo si nejsi jistý, null.
 - `label_ids`: id štítků ze seznamu, které mluvčí zmíní. Nikdy nevymýšlej id mimo seznam. Pokud žádné, prázdné pole.
@@ -403,7 +423,7 @@ Příklady (jen ilustrují pravidla — jejich obsah do výstupu nikdy nepatří
 - „Zítra ráno zavolat doktorovi kvůli, ehm, kvůli objednání" → jeden úkol: title „Zavolat doktorovi", description „Kvůli objednání", due_date = zítra 09:00, priority = null.
 - „Někdy koupit nový kabel k notebooku" → jeden úkol: title „Koupit nový kabel k notebooku", description = null, due_date = null, priority = null, project_id = null.
 - „Koupit mléko a chleba, ideálně dnes. Založ další úkol. Zavolat doktorovi kvůli objednání, je to urgentní" → dva úkoly, protože zaznělo „založ další úkol": 1) title „Koupit mléko a chleba", due_date = dnes 23:59, transcript_segment „Koupit mléko a chleba, ideálně dnes"; 2) title „Zavolat doktorovi", description „Kvůli objednání", priority = 4, transcript_segment „Zavolat doktorovi kvůli objednání, je to urgentní".
-- „Koupit mléko a chleba a taky zavolat doktorovi kvůli objednání" → JEDEN úkol (žádná fráze o novém úkolu nezazněla), např. title „Koupit mléko a chleba a zavolat doktorovi".{$commandExamples}
+- „Koupit mléko a chleba a taky zavolat doktorovi kvůli objednání" → JEDEN úkol (žádná fráze o novém úkolu nezazněla), např. title „Koupit mléko a chleba a zavolat doktorovi".{$reminderExample}{$commandExamples}
 - Ticho, šum nebo jen „ehm… zkouška" → `transcript` "", `tasks` [].
 PROMPT;
     }

@@ -197,6 +197,10 @@ class ProcessRecording implements ShouldQueue
             $payload['due_date'] = $task['due_date'];
         }
 
+        if (($task['reminders'] ?? []) !== []) {
+            $payload['reminders'] = array_map(fn (string $at) => ['reminder' => $at], $task['reminders']);
+        }
+
         $created = $vikunja->createTask($task['project_id'], $payload);
         $taskId = (int) $created['id'];
 

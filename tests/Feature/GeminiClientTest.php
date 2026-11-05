@@ -155,7 +155,8 @@ it('requests a whole transcript plus an ordered list of tasks that may be empty'
             && $schema['propertyOrdering'] === ['transcript', 'tasks']
             && $schema['properties']['tasks']['type'] === 'ARRAY'
             && ! array_key_exists('minItems', $schema['properties']['tasks'])
-            && $task['required'] === ['action', 'title', 'label_ids', 'search_terms']
+            && $task['required'] === ['action', 'title', 'label_ids', 'search_terms', 'reminders']
+            && $task['properties']['reminders'] === ['type' => 'ARRAY', 'items' => ['type' => 'STRING']]
             && $task['propertyOrdering'][0] === 'transcript_segment'
             && $task['propertyOrdering'][1] === 'action'
             && $task['properties']['transcript_segment'] === ['type' => 'STRING', 'nullable' => true]
@@ -274,6 +275,31 @@ it('leaves a switched-off command out of the prompt and the schema', function (s
             && in_array('comment', $task['properties']['action']['enum'], true);
     });
 })->with(['en', 'cs']);
+
+it('asks for reminders only while they are switched on', function (string $locale, string $rule) {
+    config()->set('voice.locale', $locale);
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => Http::response(geminiResponse(['transcript' => '', 'tasks' => []])),
+    ]);
+
+    (new GeminiClient)->extract('x', 'audio/webm', [], [], new DateTimeImmutable);
+    config()->set('voice.commands.reminders', false);
+    (new GeminiClient)->extract('x', 'audio/webm', [], [], new DateTimeImmutable);
+
+    [$on, $off] = Http::recorded()->map(fn ($pair) => $pair[0]->data())->all();
+    $schema = fn (array $body) => $body['generationConfig']['responseSchema']['properties']['tasks']['items'];
+    $prompt = fn (array $body) => $body['systemInstruction']['parts'][0]['text'];
+
+    expect($prompt($on))->toContain('- `reminders`:')->toContain($rule)
+        ->and($schema($on)['properties'])->toHaveKey('reminders')
+        ->and($prompt($off))->not->toContain('`reminders`')
+        ->and($schema($off)['properties'])->not->toHaveKey('reminders')
+        ->and($schema($off)['propertyOrdering'])->not->toContain('reminders')
+        ->and($schema($off)['properties'])->toHaveKey('action');
+})->with([
+    'en' => ['en', '"remind me tomorrow at 9"'],
+    'cs' => ['cs', '„připomeň mi zítra v 9"'],
+]);
 
 it('asks for the plain task schema with every command switched off', function (string $locale) {
     config()->set('voice.locale', $locale);

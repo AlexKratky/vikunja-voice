@@ -66,14 +66,7 @@ class ExtractionValidator
             $title = $fallbackTitle;
         }
 
-        $dueDate = null;
-        if (is_string($raw['due_date'] ?? null) && trim($raw['due_date']) !== '') {
-            try {
-                $dueDate = (new \DateTimeImmutable($raw['due_date']))->format(DATE_RFC3339);
-            } catch (\Exception) {
-                $dueDate = null;
-            }
-        }
+        $dueDate = self::dateTime($raw['due_date'] ?? null);
 
         $priority = min(5, max(0, (int) ($raw['priority'] ?? 0)));
 
@@ -100,7 +93,24 @@ class ExtractionValidator
             // Anything unexpected creates the task: a duplicate beats a lost note.
             'action' => in_array($raw['action'] ?? null, self::ACTIONS, true) ? $raw['action'] : 'create',
             'search_terms' => self::searchTerms($raw['search_terms'] ?? null),
+            'reminders' => array_slice(array_values(array_unique(array_filter(array_map(
+                self::dateTime(...),
+                is_array($raw['reminders'] ?? null) ? $raw['reminders'] : [],
+            )))), 0, 5),
         ];
+    }
+
+    private static function dateTime(mixed $raw): ?string
+    {
+        if (! is_string($raw) || trim($raw) === '') {
+            return null;
+        }
+
+        try {
+            return (new \DateTimeImmutable($raw))->format(DATE_RFC3339);
+        } catch (\Exception) {
+            return null;
+        }
     }
 
     /**

@@ -1069,3 +1069,24 @@ it('changes nothing and says so when the task to complete is not found', functio
     runJob($recording);
     expect(Http::recorded(fn ($r) => str_contains($r->url(), 'ntfy.test')))->toHaveCount(1);
 });
+
+it('creates a task with the reminders the speaker asked for', function () {
+    fakeApis(geminiPayload(['reminders' => ['2026-11-06T09:00:00+01:00', '2026-11-07T08:00:00+01:00']]));
+
+    runJob(makeRecording());
+
+    [$create] = createTaskRequests();
+    expect($create->data()['reminders'])->toBe([
+        ['reminder' => '2026-11-06T09:00:00+01:00'],
+        ['reminder' => '2026-11-07T08:00:00+01:00'],
+    ]);
+});
+
+it('sends no reminders field without reminders', function () {
+    fakeApis(geminiPayload());
+
+    runJob(makeRecording());
+
+    [$create] = createTaskRequests();
+    expect($create->data())->not->toHaveKey('reminders');
+});

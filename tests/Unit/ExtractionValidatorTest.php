@@ -51,6 +51,7 @@ it('passes through valid data', function () {
             'transcript' => 'nakoupit mléko',
             'action' => 'create',
             'search_terms' => [],
+            'reminders' => [],
         ]],
     ]);
 });
@@ -174,4 +175,10 @@ it('keeps up to five distinct search terms of at least three letters', function 
     expect(validate(['search_terms' => [' olej ', 'Olej', 'stůl', 'stol', 'na', 12, null, 'stůl', 'lak', 'dřevo', 'xxxlutz']])['search_terms'])
         ->toBe(['olej', 'stůl', 'stol', 'lak', 'dřevo']);
     expect(validate(['search_terms' => 'olej'])['search_terms'])->toBe([]);
+});
+
+it('normalizes reminders to RFC3339 and drops unparseable or repeated ones', function () {
+    expect(validate(['reminders' => ['2026-11-06T09:00:00+01:00', 'zítra ráno', '2026-11-06 09:00:00+01:00', null, '2026-11-07 08:00:00']])['reminders'])
+        ->toBe(['2026-11-06T09:00:00+01:00', '2026-11-07T08:00:00+00:00']);
+    expect(validate(['reminders' => '2026-11-06T09:00:00+01:00'])['reminders'])->toBe([]);
 });

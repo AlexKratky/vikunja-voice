@@ -31,6 +31,7 @@ return [
         'create_if_missing' => (bool) env('VOICE_COMMAND_CREATE_IF_MISSING', true),
         'comment' => (bool) env('VOICE_COMMAND_COMMENT', true),
         'complete' => (bool) env('VOICE_COMMAND_COMPLETE', true),
+        'reminders' => (bool) env('VOICE_COMMAND_REMINDERS', true),
     ],
 
     'kuma' => [
