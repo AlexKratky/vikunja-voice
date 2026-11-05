@@ -337,7 +337,7 @@ const withTimeout = (promise, ms) => Promise.race([promise, new Promise((r) => s
 function newTake() {
     const take = {
         mime: pickMime(), ctx: null, analyser: null, dest: null, source: null, mic: null,
-        recorder: null, chunks: [], stopped: null, resumable: false, elapsed: 0, startedAt: 0,
+        recorder: null, chunks: [], stopped: null, resumable: false, elapsed: 0, startedAt: 0, watchdog: 0,
     };
     try {
         const AC = window.AudioContext || window.webkitAudioContext;
@@ -410,6 +410,65 @@ async function continueTake(take, stream) {
     take.recorder.resume();
 }
 
+// ---------- mic silenced in the background ----------
+// Android feeds an app that has been in the background for about a minute
+// (screen gone dark, another app in front) digital silence instead of the
+// mic, and the track fires no event: the take would go on recording zeros.
+// So the screen is kept on while recording, and a mic that stays below
+// -120 dBFS for 5 s stops the take as if tapped. That is digital silence:
+// a quiet room after the browser's noise suppression is still ~-90 dBFS.
+const SILENT_PEAK = 1e-6;
+const SILENT_STOP_MS = 5000;
+let wakeLock = null;
+
+async function keepScreenOn() {
+    if (!navigator.wakeLock || wakeLock) return;
+    try {
+        const lock = await navigator.wakeLock.request('screen');
+        // The take may have stopped while the request was pending.
+        if (!recording || wakeLock) {
+            lock.release();
+            return;
+        }
+        wakeLock = lock;
+        lock.addEventListener('release', () => { if (wakeLock === lock) wakeLock = null; });
+    } catch (_) {
+        // Refused, e.g. battery saver: recording works without it.
+    }
+}
+
+function releaseScreen() {
+    if (wakeLock) wakeLock.release().catch(() => {});
+    wakeLock = null;
+}
+
+// The browser drops the lock whenever the page is hidden.
+document.addEventListener('visibilitychange', () => {
+    if (recording && document.visibilityState === 'visible') keepScreenOn();
+});
+
+// A timer, not animation frames: those stop while the page is hidden,
+// which is exactly when the mic gets silenced.
+function watchSilence(take) {
+    if (!take.analyser) return;
+    const data = new Float32Array(take.analyser.fftSize);
+    let silentSince = 0;
+    take.watchdog = setInterval(() => {
+        take.analyser.getFloatTimeDomainData(data);
+        let peak = 0;
+        for (const v of data) peak = Math.max(peak, Math.abs(v));
+        const now = performance.now();
+        if (peak >= SILENT_PEAK) {
+            silentSince = 0;
+        } else if (!silentSince) {
+            silentSince = now;
+        } else if (now - silentSince >= SILENT_STOP_MS && recording === take) {
+            stopTake(take).then(() => setStatus('error', STR.mic_silent
+                + (take.resumable ? ' — ' + STR.review_continue : '')));
+        }
+    }, 1000);
+}
+
 function captureStarted(take) {
     recording = take;
     take.startedAt = performance.now();
@@ -417,6 +476,8 @@ function captureStarted(take) {
     // Mic unplugged or revoked mid-take: stop as if tapped, so what was
     // recorded lands in review (and, with Web Audio, can be continued).
     if (track) track.addEventListener('ended', () => { if (recording === take) stopTake(take); });
+    watchSilence(take);
+    keepScreenOn();
     startRecLive(take.analyser, take.elapsed);
     setMicLive(track);
     $('record').classList.add('recording');
@@ -436,6 +497,8 @@ async function stopTake(take) {
     $('record').disabled = true;
     recording = null;
     take.elapsed += performance.now() - take.startedAt;
+    clearInterval(take.watchdog);
+    releaseScreen();
     stopRecLive();
     setMicLive(null);
     if (take.resumable && take.recorder.state === 'recording') {
@@ -509,6 +572,8 @@ function closeTake(take) {
     if (recording === take) {
         // Ended mid-recording, e.g. its history row was deleted meanwhile.
         recording = null;
+        clearInterval(take.watchdog);
+        releaseScreen();
         stopRecLive();
         setMicLive(null);
         $('record').classList.remove('recording');

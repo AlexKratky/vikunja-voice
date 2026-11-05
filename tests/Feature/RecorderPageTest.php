@@ -92,6 +92,16 @@ it('exposes the unsent badge string for recordings not yet sent', function () {
     $this->get('/')->assertSee('neodesl\u00e1no', escape: false);
 });
 
+it('exposes the silenced-microphone string to the recorder script', function () {
+    $this->get('/')
+        ->assertSee('The microphone went silent');
+
+    config()->set('voice.locale', 'cs');
+
+    // @json escapes non-ASCII, so the Czech string appears \u-escaped.
+    $this->get('/')->assertSee('Mikrofon ztichl, nahr\u00e1v\u00e1n\u00ed se zastavilo', escape: false);
+});
+
 it('tells crawlers not to index the app', function () {
     $this->get('/')
         ->assertHeader('X-Robots-Tag', 'noindex, nofollow, noarchive')

@@ -36,6 +36,7 @@ return [
         'send_error' => 'Upload error',
         'send_error_hint' => 'you can resend it from the history',
         'mic_error' => 'Microphone unavailable',
+        'mic_silent' => 'The microphone went silent, so recording stopped (the phone mutes it e.g. when the app stays in the background)',
         'invalid_token' => 'Invalid token',
         'empty_history' => 'No recordings yet',
         'badge_sent' => 'sent',
