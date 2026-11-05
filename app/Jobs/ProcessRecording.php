@@ -63,6 +63,13 @@ class ProcessRecording implements ShouldQueue
         $tasks = $extraction['tasks'];
         $total = count($tasks);
 
+        if ($total === 0) {
+            // Silence or nothing task-like. Sent even with success
+            // notifications off: otherwise the note just vanishes.
+            $key = $recording->text !== null ? 'voice.no_tasks_note' : 'voice.no_tasks';
+            $ntfy->send('🤷 '.__($key, locale: config('voice.locale')));
+        }
+
         for ($i = count($createdIds); $i < $total; $i++) {
             $task = $tasks[$i];
 

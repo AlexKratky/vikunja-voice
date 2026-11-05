@@ -7,6 +7,8 @@ return [
     'note_label_multi' => 'Poznámka (úkol :index/:total)',
     'fallback_title' => 'Nahrávka :time',
     'processing_failed' => 'Zpracování nahrávky selhalo',
+    'no_tasks' => 'V nahrávce nebyl nalezen žádný úkol',
+    'no_tasks_note' => 'V poznámce nebyl nalezen žádný úkol',
     'kuma_failed_jobs' => '{1} :count nahrávka selhala, viz failed_jobs|[2,4] :count nahrávky selhaly, viz failed_jobs|[5,*] :count nahrávek selhalo, viz failed_jobs',
 
     'ui' => [

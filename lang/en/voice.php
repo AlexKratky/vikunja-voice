@@ -7,6 +7,8 @@ return [
     'note_label_multi' => 'Note (task :index/:total)',
     'fallback_title' => 'Recording :time',
     'processing_failed' => 'Voice note processing failed',
+    'no_tasks' => 'No task found in the recording',
+    'no_tasks_note' => 'No task found in the note',
     'kuma_failed_jobs' => '{1} :count recording failed, see failed_jobs|[2,*] :count recordings failed, see failed_jobs',
 
     // Blade-only strings.

@@ -98,6 +98,11 @@ it('builds a single task from the top-level keys when tasks are missing, empty o
     'only garbage entries' => [['garbage', 12]],
 ]);
 
+it('returns no tasks when the model reports an empty list', function () {
+    expect(validateRaw(['transcript' => '', 'tasks' => []]))->toBe(['transcript' => '', 'tasks' => []])
+        ->and(validateRaw(['transcript' => 'ehm', 'tasks' => [], 'title' => ' '])['tasks'])->toBe([]);
+});
+
 it('drops non-array entries from tasks', function () {
     $result = validateRaw([
         'transcript' => 'x',

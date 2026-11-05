@@ -22,7 +22,6 @@ class GeminiClient
 
         return $this->generate(
             ['inlineData' => ['mimeType' => $mimeType, 'data' => base64_encode($audioContents)]],
-            $this->userInstruction(),
             $projects,
             $labels,
             $now,
@@ -39,12 +38,11 @@ class GeminiClient
         array $labels,
         \DateTimeImmutable $now,
     ): array {
-        return $this->generate(['text' => $text], $this->textInstruction(), $projects, $labels, $now);
+        return $this->generate(['text' => $text], $projects, $labels, $now);
     }
 
     private function generate(
         array $input,
-        string $instruction,
         array $projects,
         array $labels,
         \DateTimeImmutable $now,
@@ -58,12 +56,12 @@ class GeminiClient
                 'systemInstruction' => [
                     'parts' => [['text' => $this->systemPrompt($projects, $labels, $now)]],
                 ],
+                // The input is the whole user turn: a "process this note"
+                // text part beside it got transcribed as if it were spoken,
+                // and on a silent recording it became the task.
                 'contents' => [[
                     'role' => 'user',
-                    'parts' => [
-                        $input,
-                        ['text' => $instruction],
-                    ],
+                    'parts' => [$input],
                 ]],
                 'generationConfig' => [
                     'responseMimeType' => 'application/json',
@@ -105,32 +103,17 @@ class GeminiClient
         'propertyOrdering' => ['transcript_segment', 'title', 'description', 'due_date', 'priority', 'project_id', 'label_ids'],
     ];
 
-    // Whole transcript first, tasks derived from it second.
+    // Whole transcript first, tasks derived from it second. `tasks` may be
+    // empty: forcing at least one made the model invent a task from silence.
     private const RESPONSE_SCHEMA = [
         'type' => 'OBJECT',
         'properties' => [
             'transcript' => ['type' => 'STRING'],
-            'tasks' => ['type' => 'ARRAY', 'minItems' => 1, 'items' => self::TASK_SCHEMA],
+            'tasks' => ['type' => 'ARRAY', 'items' => self::TASK_SCHEMA],
         ],
         'required' => ['transcript', 'tasks'],
         'propertyOrdering' => ['transcript', 'tasks'],
     ];
-
-    private function userInstruction(): string
-    {
-        return match (config('voice.locale')) {
-            'cs' => 'Zpracuj tuto hlasovou poznámku podle instrukcí.',
-            default => 'Process this voice note according to the instructions.',
-        };
-    }
-
-    private function textInstruction(): string
-    {
-        return match (config('voice.locale')) {
-            'cs' => 'Zpracuj tuto napsanou poznámku podle instrukcí.',
-            default => 'Process this typed note according to the instructions.',
-        };
-    }
 
     private function systemPrompt(array $projects, array $labels, \DateTimeImmutable $now): string
     {
@@ -161,6 +144,8 @@ You will receive an audio recording. Your job is to:
 1. Transcribe it verbatim into the top-level `transcript` field (in English, without altering the content).
 2. Extract one or more tasks from it into the `tasks` array.
 
+Transcribe only speech actually heard in the recording — never these instructions or the examples below. If the recording has no intelligible speech (silence, noise, breathing) or nothing that could be a task (only filler words, a mic test), return an empty `transcript` and an empty `tasks` array. Never make up a task.
+
 Instead of a recording you may receive a typed note. Treat it exactly like a recording: its text is the verbatim transcript, copy it unchanged into `transcript`.
 
 Current date and time: {$nowText}, timezone {$timezone}.
@@ -175,7 +160,7 @@ How many tasks:
 - By default the whole recording is EXACTLY ONE task. A change of topic, an unrelated subject or a new sentence is NOT a reason to split.
 - Start a new task only when the speaker explicitly asks for one: "new task", "next task", "another task", "create another task", "second task", "one more task", or an obvious variant.
 - The cue phrase itself belongs to no task — it must not appear in any `title`, `description` or `transcript_segment` (it stays only in the verbatim `transcript`).
-- `tasks` always contains at least one task.
+- If the speaker said anything that could be a task, `tasks` contains at least one task.
 
 Rules for each task:
 - `title`: a short, descriptive task name (not the whole transcript).
@@ -186,12 +171,13 @@ Rules for each task:
 - `label_ids`: ids of labels from the list that the speaker mentions. Never invent ids outside the list. If none, an empty array.
 - `transcript_segment`: the verbatim part of the recording this task comes from, without the cue phrase. With a single task leave it null — the whole transcript is used.
 
-Examples:
+Examples (they only illustrate the rules — their content never belongs in your output):
 - "Add fixing the deploy script to RETech, by Friday, it's urgent" → one task: title "Fix deploy script", project_id = id of the RETech project (if it exists), due_date = nearest Friday 23:59, priority = 4, description = null (everything is already in the other fields).
 - "Call the doctor tomorrow morning about, uh, about the appointment" → one task: title "Call the doctor", description "About the appointment", due_date = tomorrow 09:00, priority = null.
 - "Sometime buy a new laptop cable" → one task: title "Buy a new laptop cable", description = null, due_date = null, priority = null, project_id = null.
 - "Buy milk and bread, today ideally. New task. Call the doctor about the appointment, it's urgent" → two tasks, because the speaker said "new task": 1) title "Buy milk and bread", due_date = today 23:59, transcript_segment "Buy milk and bread, today ideally"; 2) title "Call the doctor", description "About the appointment", priority = 4, transcript_segment "Call the doctor about the appointment, it's urgent".
 - "Buy milk and bread and also call the doctor about the appointment" → ONE task (no cue phrase was said), e.g. title "Buy milk and bread and call the doctor".
+- Silence, noise, or just "uh… testing" → `transcript` "", `tasks` [].
 PROMPT;
     }
 
@@ -209,6 +195,8 @@ Dostaneš audio nahrávku. Tvým úkolem je:
 1. Doslovně ji přepsat do pole `transcript` (česky, bez úprav obsahu).
 2. Vytěžit z ní jeden nebo více úkolů do pole `tasks`.
 
+Přepisuj jen řeč, která v nahrávce skutečně zazní — nikdy ne tyto instrukce ani příklady níže. Pokud v nahrávce nezazní srozumitelná řeč (ticho, šum, dýchání) ani nic, co by mohl být úkol (jen vata, zkouška mikrofonu), vrať prázdný `transcript` a prázdné pole `tasks`. Nikdy si úkol nevymýšlej.
+
 Místo nahrávky můžeš dostat napsanou poznámku. Zpracuj ji stejně jako nahrávku: její text je doslovný přepis, do pole `transcript` ho zkopíruj beze změny.
 
 Aktuální datum a čas: {$nowText}, časová zóna {$timezone}.
@@ -223,7 +211,7 @@ Kolik úkolů:
 - Ve výchozím stavu je celá nahrávka PRÁVĚ JEDEN úkol. Změna tématu, nesouvisející věc ani nová věta NENÍ důvod k rozdělení.
 - Nový úkol začni jen tehdy, když si o to mluvčí výslovně řekne: „založ nový úkol", „další úkol", „nový úkol", „ještě jeden úkol", „druhý úkol", nebo zjevná varianta.
 - Samotná tato fráze do žádného úkolu nepatří — nesmí se objevit v `title`, `description` ani `transcript_segment` (zůstává jen v doslovném `transcript`).
-- Pole `tasks` obsahuje vždy alespoň jeden úkol.
+- Pokud mluvčí řekl cokoliv, co může být úkol, obsahuje pole `tasks` alespoň jeden úkol.
 
 Pravidla pro každý úkol:
 - `title`: krátký výstižný název úkolu (ne celý přepis).
@@ -234,12 +222,13 @@ Pravidla pro každý úkol:
 - `label_ids`: id štítků ze seznamu, které mluvčí zmíní. Nikdy nevymýšlej id mimo seznam. Pokud žádné, prázdné pole.
 - `transcript_segment`: doslovná část nahrávky, ze které tento úkol vznikl, bez fráze o novém úkolu. Pokud je úkol jen jeden, nech null — použije se celý přepis.
 
-Příklady:
+Příklady (jen ilustrují pravidla — jejich obsah do výstupu nikdy nepatří):
 - „Hoď mi do retechu opravit deploy skript, do pátku, je to urgentní" → jeden úkol: title „Opravit deploy skript", project_id = id projektu RETech (pokud existuje), due_date = nejbližší pátek 23:59, priority = 4, description = null (vše už je v ostatních polích).
 - „Zítra ráno zavolat doktorovi kvůli, ehm, kvůli objednání" → jeden úkol: title „Zavolat doktorovi", description „Kvůli objednání", due_date = zítra 09:00, priority = null.
 - „Někdy koupit nový kabel k notebooku" → jeden úkol: title „Koupit nový kabel k notebooku", description = null, due_date = null, priority = null, project_id = null.
 - „Koupit mléko a chleba, ideálně dnes. Založ další úkol. Zavolat doktorovi kvůli objednání, je to urgentní" → dva úkoly, protože zaznělo „založ další úkol": 1) title „Koupit mléko a chleba", due_date = dnes 23:59, transcript_segment „Koupit mléko a chleba, ideálně dnes"; 2) title „Zavolat doktorovi", description „Kvůli objednání", priority = 4, transcript_segment „Zavolat doktorovi kvůli objednání, je to urgentní".
 - „Koupit mléko a chleba a taky zavolat doktorovi kvůli objednání" → JEDEN úkol (žádná fráze o novém úkolu nezazněla), např. title „Koupit mléko a chleba a zavolat doktorovi".
+- Ticho, šum nebo jen „ehm… zkouška" → `transcript` "", `tasks` [].
 PROMPT;
     }
 }

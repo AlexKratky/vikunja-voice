@@ -6,8 +6,9 @@ class ExtractionValidator
 {
     /**
      * Sanitize a raw Gemini extraction into a whole-recording transcript plus
-     * one or more tasks. Framework-free on purpose: unit tests run it without
-     * booting Laravel, so the locale-dependent fallback title is passed in.
+     * its tasks (none if nothing in it is a task). Framework-free on purpose:
+     * unit tests run it without booting Laravel, so the locale-dependent
+     * fallback title is passed in.
      *
      * @param  array<int, int>  $validProjectIds
      * @param  array<int, int>  $validLabelIds
@@ -24,9 +25,13 @@ class ExtractionValidator
             ? array_values(array_filter($raw['tasks'], is_array(...)))
             : [];
 
+        // An empty list with no top-level title is the model reporting that
+        // nothing in the recording is a task (silence, noise).
+        $noTask = ($raw['tasks'] ?? null) === [] && trim((string) ($raw['title'] ?? '')) === '';
+
         // Missing, empty or malformed `tasks`: treat the top-level object as a
         // single task, so the old flat response shape still yields a task.
-        if ($rawTasks === []) {
+        if ($rawTasks === [] && ! $noTask) {
             $rawTasks = [$raw];
         }
 

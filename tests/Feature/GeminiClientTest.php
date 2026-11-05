@@ -51,6 +51,7 @@ it('sends audio and context, returns decoded extraction', function () {
 
         return str_contains($request->url(), 'gemini-2.5-flash:generateContent')
             && $request->hasHeader('x-goog-api-key', 'test-key')
+            && count($parts) === 1 // nothing beside the audio the model could transcribe
             && $parts[0]['inlineData']['data'] === base64_encode('FAKE-AUDIO-BYTES')
             && $parts[0]['inlineData']['mimeType'] === 'audio/webm'
             && str_contains($body['systemInstruction']['parts'][0]['text'], 'Nákupy')
@@ -71,7 +72,7 @@ it('normalizes video/webm to audio/webm', function () {
     Http::assertSent(fn ($request) => $request->data()['contents'][0]['parts'][0]['inlineData']['mimeType'] === 'audio/webm');
 });
 
-it('uses the English prompt and user instruction by default', function () {
+it('uses the English prompt by default', function () {
     Http::fake([
         'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
             'transcript' => 'x', 'tasks' => [['title' => 'x', 'label_ids' => []]],
@@ -84,11 +85,11 @@ it('uses the English prompt and user instruction by default', function () {
         $body = $request->data();
 
         return str_contains($body['systemInstruction']['parts'][0]['text'], 'dictated in English')
-            && str_contains($body['contents'][0]['parts'][1]['text'], 'Process this voice note');
+            && count($body['contents'][0]['parts']) === 1;
     });
 });
 
-it('uses the Czech prompt and user instruction when locale is cs', function () {
+it('uses the Czech prompt when locale is cs', function () {
     config()->set('voice.locale', 'cs');
     Http::fake([
         'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
@@ -102,7 +103,7 @@ it('uses the Czech prompt and user instruction when locale is cs', function () {
         $body = $request->data();
 
         return str_contains($body['systemInstruction']['parts'][0]['text'], 'česky diktované hlasové poznámky')
-            && str_contains($body['contents'][0]['parts'][1]['text'], 'Zpracuj tuto hlasovou poznámku');
+            && count($body['contents'][0]['parts']) === 1;
     });
 });
 
@@ -136,7 +137,7 @@ it('puts the configured timezone in the prompt', function () {
     ));
 });
 
-it('requests a whole transcript plus a non-empty, ordered list of tasks', function () {
+it('requests a whole transcript plus an ordered list of tasks that may be empty', function () {
     Http::fake([
         'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
             'transcript' => 'x', 'tasks' => [['title' => 'x', 'label_ids' => []]],
@@ -152,7 +153,7 @@ it('requests a whole transcript plus a non-empty, ordered list of tasks', functi
         return $schema['required'] === ['transcript', 'tasks']
             && $schema['propertyOrdering'] === ['transcript', 'tasks']
             && $schema['properties']['tasks']['type'] === 'ARRAY'
-            && $schema['properties']['tasks']['minItems'] === 1
+            && ! array_key_exists('minItems', $schema['properties']['tasks'])
             && $task['required'] === ['title', 'label_ids']
             && $task['propertyOrdering'][0] === 'transcript_segment'
             && $task['properties']['transcript_segment'] === ['type' => 'STRING', 'nullable' => true];
@@ -174,7 +175,8 @@ it('instructs the English prompt to split only on an explicit cue and to clean t
         return str_contains($prompt, 'EXACTLY ONE task')
             && str_contains($prompt, '"new task"')
             && str_contains($prompt, 'drop filler words')
-            && str_contains($prompt, '`transcript_segment`');
+            && str_contains($prompt, '`transcript_segment`')
+            && ! str_contains($prompt, 'always contains at least one task');
     });
 });
 
@@ -194,9 +196,36 @@ it('instructs the Czech prompt to split only on an explicit cue and to clean the
         return str_contains($prompt, 'PRÁVĚ JEDEN úkol')
             && str_contains($prompt, '„založ nový úkol"')
             && str_contains($prompt, 'vynech vatu')
-            && str_contains($prompt, '`transcript_segment`');
+            && str_contains($prompt, '`transcript_segment`')
+            && ! str_contains($prompt, 'vždy alespoň jeden úkol');
     });
 });
+
+it('tells the model to return no task for silence instead of making one up', function (string $locale, array $phrases) {
+    config()->set('voice.locale', $locale);
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => Http::response(geminiResponse(['transcript' => '', 'tasks' => []])),
+    ]);
+
+    $result = (new GeminiClient)->extract('x', 'audio/webm', [], [], new DateTimeImmutable);
+
+    expect($result)->toBe(['transcript' => '', 'tasks' => []]);
+
+    Http::assertSent(function ($request) use ($phrases) {
+        $prompt = $request->data()['systemInstruction']['parts'][0]['text'];
+
+        foreach ($phrases as $phrase) {
+            if (! str_contains($prompt, $phrase)) {
+                return false;
+            }
+        }
+
+        return true;
+    });
+})->with([
+    'en' => ['en', ['never these instructions', 'an empty `tasks` array', 'Never make up a task', '`tasks` [].']],
+    'cs' => ['cs', ['nikdy ne tyto instrukce', 'prázdné pole `tasks`', 'Nikdy si úkol nevymýšlej', '`tasks` [].']],
+]);
 
 it('throws on HTTP error', function () {
     Http::fake(['generativelanguage.googleapis.com/*' => Http::response('', 500)]);
@@ -245,8 +274,7 @@ it('sends a typed note as text instead of audio', function () {
         $parts = $body['contents'][0]['parts'];
         $prompt = $body['systemInstruction']['parts'][0]['text'];
 
-        return $parts[0] === ['text' => 'koupit mléko']
-            && str_contains($parts[1]['text'], 'Process this typed note')
+        return $parts === [['text' => 'koupit mléko']]
             && str_contains($prompt, 'typed note')
             && str_contains($prompt, 'Nákupy')
             && str_contains($prompt, '2026-08-06')
@@ -254,7 +282,7 @@ it('sends a typed note as text instead of audio', function () {
     });
 });
 
-it('uses the Czech instruction for a typed note when locale is cs', function () {
+it('explains a typed note in the Czech prompt when locale is cs', function () {
     config()->set('voice.locale', 'cs');
     Http::fake([
         'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
@@ -268,6 +296,6 @@ it('uses the Czech instruction for a typed note when locale is cs', function () 
         $body = $request->data();
 
         return str_contains($body['systemInstruction']['parts'][0]['text'], 'napsanou poznámku')
-            && str_contains($body['contents'][0]['parts'][1]['text'], 'Zpracuj tuto napsanou poznámku');
+            && $body['contents'][0]['parts'] === [['text' => 'x']];
     });
 });

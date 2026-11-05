@@ -359,6 +359,46 @@ it('omits due_date when null', function () {
         && ! array_key_exists('due_date', $r->data()));
 });
 
+it('creates nothing and says so when the recording holds no task', function () {
+    // Sent even with success notifications off: it's the only trace of the note.
+    config()->set('voice.ntfy.notify_success', false);
+    fakeApis(['transcript' => '', 'tasks' => []]);
+    $recording = makeRecording();
+
+    runJob($recording);
+
+    $recording->refresh();
+    expect($recording->status)->toBe('done')
+        ->and($recording->transcript)->toBe('')
+        ->and($recording->extraction)->toBe(['transcript' => '', 'tasks' => []])
+        ->and($recording->vikunja_task_ids)->toBe([])
+        ->and(createTaskRequests())->toHaveCount(0);
+
+    $notifications = Http::recorded(fn ($r) => str_contains($r->url(), 'ntfy.test/topic'));
+    expect($notifications)->toHaveCount(1)
+        ->and($notifications->first()[0]->body())->toBe('🤷 No task found in the recording')
+        ->and($notifications->first()[0]->hasHeader('X-Click'))->toBeFalse();
+
+    // Done: a second run neither calls Gemini again nor notifies twice.
+    runJob($recording);
+    expect(Http::recorded(fn ($r) => str_contains($r->url(), 'generativelanguage')))->toHaveCount(1)
+        ->and(Http::recorded(fn ($r) => str_contains($r->url(), 'ntfy.test')))->toHaveCount(1);
+});
+
+it('says in Czech that no task was found, for a recording and for a typed note', function () {
+    config()->set('voice.locale', 'cs');
+    fakeApis(['transcript' => 'ehm', 'tasks' => []]);
+
+    runJob(makeRecording());
+    runJob(makeNote('test'));
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'ntfy.test/topic')
+        && $r->body() === '🤷 V nahrávce nebyl nalezen žádný úkol');
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'ntfy.test/topic')
+        && $r->body() === '🤷 V poznámce nebyl nalezen žádný úkol');
+    expect(createTaskRequests())->toHaveCount(0);
+});
+
 it('propagates Gemini failures so the queue retries', function () {
     fakeApis(geminiPayload(), ['generativelanguage.googleapis.com/*' => Http::response('', 500)]);
     $recording = makeRecording();
@@ -623,9 +663,7 @@ it('processes a typed note end to end without touching storage', function () {
         }
         $parts = $r->data()['contents'][0]['parts'];
 
-        return ! isset($parts[0]['inlineData'])
-            && str_contains($parts[0]['text'], 'zítra koupit mléko')
-            && str_contains($parts[1]['text'], 'typed note');
+        return $parts === [['text' => '  zítra koupit mléko  ']];
     });
 
     Http::assertSent(fn ($r) => $r->method() === 'PUT'

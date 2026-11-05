@@ -18,9 +18,9 @@ Browser PWA ──POST /api/recordings──▶ Laravel ──▶ storage (priva
 ```
 
 1. The PWA records audio (`MediaRecorder`) and uploads it with a shared bearer token. Recording history is kept only in your browser (IndexedDB): a recording lands there as soon as you stop recording, marked *not sent* until you send it, so closing the app before sending never loses it. Failed uploads can be retried from the history.
-2. A queued job sends the audio to Gemini with a structured-output schema: a verbatim transcript plus a list of tasks. One recording is one task by default; the model splits it only when you explicitly say "new task" / "další úkol" while dictating. Relative dates ("tomorrow", "by Friday") are resolved against the configured timezone.
+2. A queued job sends the audio to Gemini with a structured-output schema: a verbatim transcript plus a list of tasks. One recording is one task by default; the model splits it only when you explicitly say "new task" / "další úkol" while dictating. A recording with no speech (silence, noise, a mic test) yields no task rather than an invented one. Relative dates ("tomorrow", "by Friday") are resolved against the configured timezone.
 3. Extracted project and label IDs are validated against your actual Vikunja data — the model cannot invent IDs. Each task is created with its part of the transcript preserved in its description (with a single task, the whole transcript).
-4. Optionally, a [ntfy](https://ntfy.sh/) notification confirms success or failure.
+4. Optionally, a [ntfy](https://ntfy.sh/) notification confirms success or failure, or says that no task was found (sent even with `NTFY_NOTIFY_SUCCESS=false`).
 
 A typed note (`POST /api/notes`) takes the same path: it is stored first, then the same job sends its text to Gemini instead of audio. The text is kept as the transcript, so the extraction rules (one task unless you write "new task", relative dates, project and label matching) are identical.
 
