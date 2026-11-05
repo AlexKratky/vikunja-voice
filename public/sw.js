@@ -1,4 +1,4 @@
-const CACHE = 'vv-v12';
+const CACHE = 'vv-v13';
 const ASSETS = ['/', '/css/app.css', '/js/app.js', '/manifest.json'];
 
 // Web Share Target hand-off: the shared file is parked here between the
@@ -18,6 +18,14 @@ self.addEventListener('activate', (e) => {
             .then((keys) => Promise.all(keys.filter((k) => !keep.has(k)).map((k) => caches.delete(k))))
             .then(() => self.clients.claim())
     );
+});
+
+// The "microphone went silent" notification (notifyMicSilent() in app.js):
+// tapping it brings the recorder back.
+self.addEventListener('notificationclick', (e) => {
+    e.notification.close();
+    e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+        .then((list) => (list.length ? list[0].focus() : self.clients.openWindow('/'))));
 });
 
 self.addEventListener('fetch', (e) => {

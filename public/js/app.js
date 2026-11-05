@@ -442,9 +442,44 @@ function releaseScreen() {
     wakeLock = null;
 }
 
-// The browser drops the lock whenever the page is hidden.
+// The status line can't be seen on a locked phone, a notification can.
+// Permission is asked for on a record tap, the one moment it makes sense;
+// asking needs that tap, and the notification needs a service worker
+// (Android has no `new Notification()`).
+const MIC_SILENT_TAG = 'mic-silent';
+
+function askNotifyPermission() {
+    if (window.Notification && Notification.permission === 'default') {
+        try {
+            Notification.requestPermission();
+        } catch (_) {}
+    }
+}
+
+async function notifyMicSilent() {
+    if (!window.Notification || Notification.permission !== 'granted' || !navigator.serviceWorker) return;
+    try {
+        const reg = await navigator.serviceWorker.ready;
+        await reg.showNotification(STR.mic_silent_title, {
+            body: STR.mic_silent_body, tag: MIC_SILENT_TAG, icon: '/icons/icon-192.png',
+        });
+    } catch (_) {}
+}
+
+// Back in the app the status line says it all; the notification goes.
+async function closeMicSilentNotice() {
+    if (!navigator.serviceWorker) return;
+    try {
+        const reg = await navigator.serviceWorker.ready;
+        (await reg.getNotifications({ tag: MIC_SILENT_TAG })).forEach((n) => n.close());
+    } catch (_) {}
+}
+
 document.addEventListener('visibilitychange', () => {
-    if (recording && document.visibilityState === 'visible') keepScreenOn();
+    if (document.visibilityState !== 'visible') return;
+    // The browser drops the lock whenever the page is hidden.
+    if (recording) keepScreenOn();
+    closeMicSilentNotice();
 });
 
 // A timer, not animation frames: those stop while the page is hidden,
@@ -465,6 +500,7 @@ function watchSilence(take) {
         } else if (now - silentSince >= SILENT_STOP_MS && recording === take) {
             stopTake(take).then(() => setStatus('error', STR.mic_silent
                 + (take.resumable ? ' — ' + STR.review_continue : '')));
+            notifyMicSilent();
         }
     }, 1000);
 }
@@ -597,6 +633,7 @@ $('record').addEventListener('click', async () => {
     const paused = current && current.take;
     const take = paused || newTake();
     if (take.ctx) take.ctx.resume().catch(() => {}); // still inside the tap (Safari)
+    askNotifyPermission(); // likewise; not awaited, recording doesn't wait for the answer
     try {
         const audio = micsShown ? { deviceId: { exact: $('mic-select').value } } : true;
         const stream = await navigator.mediaDevices.getUserMedia({ audio });

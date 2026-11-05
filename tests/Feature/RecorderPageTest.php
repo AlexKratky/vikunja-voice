@@ -92,9 +92,10 @@ it('exposes the unsent badge string for recordings not yet sent', function () {
     $this->get('/')->assertSee('neodesl\u00e1no', escape: false);
 });
 
-it('exposes the silenced-microphone string to the recorder script', function () {
+it('exposes the silenced-microphone strings to the recorder script', function () {
     $this->get('/')
-        ->assertSee('The microphone went silent');
+        ->assertSee('The microphone went silent')
+        ->assertSee('Recording stopped');
 
     config()->set('voice.locale', 'cs');
 

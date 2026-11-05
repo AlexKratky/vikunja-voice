@@ -34,6 +34,8 @@ return [
         'send_error_hint' => 'v historii jde poslat znovu',
         'mic_error' => 'Mikrofon nedostupný',
         'mic_silent' => 'Mikrofon ztichl, nahrávání se zastavilo (telefon ho ztlumí např. když je aplikace déle na pozadí)',
+        'mic_silent_title' => 'Nahrávání se zastavilo',
+        'mic_silent_body' => 'Mikrofon ztichl. Otevři aplikaci a nahrávku odešli, nebo doplň.',
         'invalid_token' => 'Neplatný token',
         'empty_history' => 'Zatím žádné nahrávky',
         'badge_sent' => 'odesláno',
