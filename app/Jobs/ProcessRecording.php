@@ -96,6 +96,7 @@ class ProcessRecording implements ShouldQueue
             [$taskId, $message] = match ($task['action'] ?? 'create') {
                 'create_if_missing' => $this->createIfMissing($vikunja, $task, $description),
                 'comment' => $this->comment($vikunja, $task, $description),
+                'complete' => $this->complete($vikunja, $task),
                 default => $this->create($vikunja, $task, $description),
             };
 
@@ -241,6 +242,22 @@ class ProcessRecording implements ShouldQueue
         $vikunja->addComment($existing['task_id'], $description);
 
         return [$existing['task_id'], '💬 '.$this->say('comment_added', ['title' => $existing['title']])];
+    }
+
+    /**
+     * @return array{0: ?int, 1: string}
+     */
+    private function complete(VikunjaClient $vikunja, array $task): array
+    {
+        $existing = $task['match'];
+
+        if ($existing['task_id'] === null) {
+            return [null, '❓ '.$this->say('task_not_found', ['title' => $task['title']])];
+        }
+
+        $vikunja->updateTask($existing['task_id'], fn (array $current) => [...$current, 'done' => true]);
+
+        return [$existing['task_id'], '☑️ '.$this->say('task_completed', ['title' => $existing['title']])];
     }
 
     // Explicit locale: queue workers don't run the SetVoiceLocale HTTP middleware.

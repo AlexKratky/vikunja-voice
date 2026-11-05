@@ -12,6 +12,8 @@ return [
     'task_exists' => 'Task already exists: :title',
     'comment_added' => 'Note added to: :title',
     'comment_as_task' => 'Task to add to not found, the note is a new task: :title',
+    'task_completed' => 'Done: :title',
+    'task_not_found' => 'Task not found: :title',
     'kuma_failed_jobs' => '{1} :count recording failed, see failed_jobs|[2,*] :count recordings failed, see failed_jobs',
 
     // Blade-only strings.

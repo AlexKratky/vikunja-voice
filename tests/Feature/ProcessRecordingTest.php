@@ -995,3 +995,77 @@ it('keeps the note as a new task when the task to add to is not found', function
         && $r->body() === '📝 Úkol k doplnění nenalezen, poznámka je nový úkol: Olej'
         && $r->header('X-Click') === ['https://vikunja.test/tasks/42']);
 });
+
+/** The open task 147 as Vikunja returns it, with fields an update must keep. */
+function vikunjaTask147(array $overrides = []): array
+{
+    return array_merge([
+        'id' => 147,
+        'title' => 'Koupit olej na olejování stolu',
+        'description' => '<p>Bezbarvý</p>',
+        'done' => false,
+        'due_date' => '2026-11-07T23:59:00+01:00',
+        'priority' => 2,
+        'project_id' => 5,
+        'reminders' => [['reminder' => '2026-11-06T09:00:00+01:00', 'relative_period' => 0, 'relative_to' => '']],
+        'assignees' => [['id' => 1, 'username' => 'alex']],
+    ], $overrides);
+}
+
+function updateTaskRequests(): array
+{
+    return Http::recorded(fn ($r) => $r->method() === 'POST' && str_ends_with($r->url(), '/api/v1/tasks/147'))
+        ->map(fn ($pair) => $pair[0])
+        ->values()
+        ->all();
+}
+
+it('marks the existing task the speaker names as done, keeping everything else', function () {
+    config()->set('voice.ntfy.notify_success', false);
+    fakeExistingCheck(
+        ['transcript' => 'Hotovo, olej mám', 'tasks' => [geminiTask(['action' => 'complete', 'title' => 'Olej', 'search_terms' => ['olej']])]],
+        [['task' => 1, 'reason' => 'The oil task', 'existing_task_id' => 147]],
+        ['vikunja.test/api/v1/tasks/147' => Http::response(vikunjaTask147())],
+    );
+    $recording = makeRecording();
+
+    runJob($recording);
+
+    $recording->refresh();
+    expect($recording->status)->toBe('done')
+        ->and($recording->vikunja_task_ids)->toBe([147])
+        ->and(createTaskRequests())->toHaveCount(0);
+
+    [$update] = updateTaskRequests();
+    expect($update->data())->toBe(vikunjaTask147(['done' => true]));
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'ntfy.test/topic')
+        && $r->body() === '☑️ Done: Koupit olej na olejování stolu'
+        && $r->header('X-Click') === ['https://vikunja.test/tasks/147']);
+});
+
+it('changes nothing and says so when the task to complete is not found', function () {
+    config()->set('voice.locale', 'cs');
+    fakeExistingCheck(
+        ['transcript' => 'x', 'tasks' => [geminiTask(['action' => 'complete', 'title' => 'Lak', 'search_terms' => ['lak']])]],
+        [['task' => 1, 'reason' => 'No varnish task', 'existing_task_id' => null]],
+    );
+    $recording = makeRecording();
+
+    runJob($recording);
+
+    $recording->refresh();
+    expect($recording->status)->toBe('done')
+        ->and($recording->vikunja_task_ids)->toBe([null])
+        ->and(createTaskRequests())->toHaveCount(0)
+        ->and(updateTaskRequests())->toHaveCount(0);
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'ntfy.test/topic')
+        && $r->body() === '❓ Úkol nenalezen: Lak'
+        && $r->header('X-Click') === ['https://vikunja.test']);
+
+    // Done: a second run neither acts nor announces again.
+    $recording->update(['status' => 'processing']);
+    runJob($recording);
+    expect(Http::recorded(fn ($r) => str_contains($r->url(), 'ntfy.test')))->toHaveCount(1);
+});

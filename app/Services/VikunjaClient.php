@@ -63,6 +63,20 @@ class VikunjaClient
         return $this->client()->put("/projects/{$projectId}/tasks", $payload)->throw()->json();
     }
 
+    /**
+     * Vikunja's update overwrites every field, clearing any left out (a bare
+     * `{"done": true}` wipes the description, due date, priority and
+     * reminders), so the task is read and sent back whole with the change.
+     *
+     * @param  \Closure(array): array  $change
+     */
+    public function updateTask(int $taskId, \Closure $change): array
+    {
+        $task = $this->client()->get("/tasks/{$taskId}")->throw()->json();
+
+        return $this->client()->post("/tasks/{$taskId}", $change($task))->throw()->json();
+    }
+
     public function addComment(int $taskId, string $html): void
     {
         $this->client()->put("/tasks/{$taskId}/comments", ['comment' => $html])->throw();

@@ -133,6 +133,23 @@ it('adds a comment via PUT', function () {
         && $r->data() === ['comment' => '<p>Koupím v Hornbachu</p>']);
 });
 
+it('updates a task by sending it back whole with the change applied', function () {
+    $task = ['id' => 147, 'title' => 'Olej', 'description' => '<p>x</p>', 'done' => false, 'priority' => 2];
+    Http::fake([
+        'vikunja.test/api/v1/tasks/147' => fn ($r) => Http::response($r->method() === 'GET' ? $task : [...$r->data(), 'updated' => 'now']),
+    ]);
+
+    $updated = (new VikunjaClient)->updateTask(147, fn (array $current) => [...$current, 'done' => true]);
+
+    expect($updated['done'])->toBeTrue();
+
+    $requests = Http::recorded()->map(fn ($pair) => [$pair[0]->method(), $pair[0]->data()])->all();
+    expect($requests)->toBe([
+        ['GET', []],
+        ['POST', [...$task, 'done' => true]],
+    ]);
+});
+
 it('throws on error responses', function () {
     Http::fake(['vikunja.test/*' => Http::response('', 503)]);
 

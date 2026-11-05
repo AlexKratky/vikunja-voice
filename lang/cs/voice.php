@@ -12,6 +12,8 @@ return [
     'task_exists' => 'Úkol už existuje: :title',
     'comment_added' => 'Doplněno k úkolu: :title',
     'comment_as_task' => 'Úkol k doplnění nenalezen, poznámka je nový úkol: :title',
+    'task_completed' => 'Hotovo: :title',
+    'task_not_found' => 'Úkol nenalezen: :title',
     'kuma_failed_jobs' => '{1} :count nahrávka selhala, viz failed_jobs|[2,4] :count nahrávky selhaly, viz failed_jobs|[5,*] :count nahrávek selhalo, viz failed_jobs',
 
     'ui' => [
