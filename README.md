@@ -63,7 +63,7 @@ Besides dictating new tasks, you can say a command. Every command is on by defau
 | List | "what do I have today?", "what's overdue?", "what urgent tasks do I have in RETech?" / „co mám na dnešek?", „co mám po termínu?" | The notification lists your matching open tasks, soonest due first (up to 15, the rest counted), straight from Vikunja — nothing is sent to Gemini a second time and nothing is created. A period ("this week") includes overdue tasks; a priority, project, or keywords narrow it down. | `VOICE_COMMAND_LIST` |
 | Reminders | "remind me tomorrow at 9 …" / „připomeň mi zítra v 9 …" | The new task gets a Vikunja reminder at that time (with no time of day, 9:00); "an hour before" counts from the due date. Asking for a reminder sets no deadline by itself. | `VOICE_COMMAND_REMINDERS` |
 
-**Finding the existing task.** A command about an existing task is compared with your open tasks: the 50 newest plus those containing any of the keywords the model picked from the dictation, each searched on its own in titles and descriptions (Vikunja's search takes a phrase as one substring). A second, text-only Gemini request picks the task — only ever one of those, and none when unsure. The decision is stored before anything is done, so a retry never asks again. Recordings without such a command never read your task list.
+**Finding the existing task.** A command about an existing task is compared with your open tasks: the 50 newest plus those containing any of the keywords the model picked from the dictation, each searched on its own in titles and descriptions (Vikunja's search takes a phrase as one substring). A second, text-only Gemini request picks the task — only ever one of those, and none when unsure. The decision is stored before anything is done, so a retry never asks again. Recordings without a voice command never read your task list.
 
 **Notifications.** Only a plain new task follows `NTFY_NOTIFY_SUCCESS`. Everything else is always announced, since either nothing new shows up in Vikunja or the model picked the task acted on; the notification links to that task so you can check.
 
@@ -71,7 +71,7 @@ Besides dictating new tasks, you can say a command. Every command is on by defau
 
 `VOICE_INPUT_LOCALE` sets the language of the whole pipeline: the Gemini extraction prompt (i.e. the language you dictate in), the recorder UI, and notification/transcript texts. Supported values are `en` (default) and `cs`; anything else falls back to English.
 
-Adding a language takes two focused changes — a `lang/<locale>/voice.php` translation file and a system prompt in `app/Services/GeminiClient.php`. PRs welcome.
+Adding a language takes two focused changes — a `lang/<locale>/voice.php` translation file and a system prompt with its voice command texts (see `czechPrompt()` and `czechCommands()`) in `app/Services/GeminiClient.php`. PRs welcome.
 
 > [!NOTE]
 > **Upgrading from a pre-locale version?** The default is English. Set `VOICE_INPUT_LOCALE=cs` in `.env` to keep the original Czech behavior.
@@ -80,7 +80,7 @@ Adding a language takes two focused changes — a `lang/<locale>/voice.php` tran
 
 - PHP 8.4, Composer
 - SQLite (default; anything Laravel supports works)
-- A Vikunja instance and API token
+- A Vikunja instance and API token. The [voice commands](#voice-commands) use `GET /api/v1/tasks` (older Vikunja releases call it `/tasks/all`); tested with v2.5 and v2.7.
 - A Google Gemini API key ([Google AI Studio](https://aistudio.google.com/))
 - HTTPS in production (the microphone requires a secure context)
 
