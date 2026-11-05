@@ -108,3 +108,17 @@ it('tells crawlers not to index the app', function () {
         ->assertHeader('X-Robots-Tag', 'noindex, nofollow, noarchive')
         ->assertSee('<meta name="robots" content="noindex, nofollow, noarchive">', escape: false);
 });
+
+it('renders the server-unreachable warning hidden until a check fails', function () {
+    $this->get('/')
+        ->assertSee('<p id="server-down" role="status" hidden>', escape: false)
+        ->assertSee('Server unreachable (offline or VPN off?)');
+
+    config()->set('voice.locale', 'cs');
+
+    $this->get('/')->assertSee('Server je nedostupný (offline nebo vypnutá VPN?)');
+});
+
+it('answers the health check the recorder asks before and after recording', function () {
+    $this->get('/up')->assertOk();
+});

@@ -34,6 +34,7 @@ return [
         'history_note' => 'jen v tomto prohlížeči',
         'delete_all' => 'Smazat vše',
         'mic' => 'Mikrofon',
+        'server_down' => 'Server je nedostupný (offline nebo vypnutá VPN?) — odeslání nejspíš neprojde. Nahrávka počká v historii, než ji odešleš.',
     ],
 
     'js' => [

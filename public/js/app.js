@@ -555,6 +555,7 @@ async function stopTake(take) {
     let blob = new Blob(take.chunks, { type });
     if (take.resumable) blob = await dropWebmDuration(blob);
     showPreview(blob, type, take.resumable ? take : null);
+    checkServer(); // so the review says up front whether Send will likely work
     $('record').classList.remove('recording');
     $('record').disabled = false;
     $('import').disabled = false;
@@ -634,6 +635,7 @@ $('record').addEventListener('click', async () => {
     const take = paused || newTake();
     if (take.ctx) take.ctx.resume().catch(() => {}); // still inside the tap (Safari)
     askNotifyPermission(); // likewise; not awaited, recording doesn't wait for the answer
+    checkServer(); // nor for the server, which only sending needs
     try {
         const audio = micsShown ? { deviceId: { exact: $('mic-select').value } } : true;
         const stream = await navigator.mediaDevices.getUserMedia({ audio });
@@ -714,6 +716,43 @@ $('download-preview').addEventListener('click', () => {
     if (current) downloadEntry(current);
 });
 
+// ---------- server reachability ----------
+// Recording works offline (the page comes from the service worker), sending
+// doesn't, and the server may only be reachable over a VPN. So it is asked
+// when recording starts and when it stops, and a warning says sending will
+// likely fail; the recording lands in the history regardless, to be sent
+// later. /up is Laravel's health route; sw.js leaves it to the network, a
+// cached answer would report the server up while it is unreachable.
+const HEALTH_URL = '/up';
+const HEALTH_TIMEOUT_MS = 5000; // a host that's only routable over the VPN can hang far longer
+let healthSeq = 0;
+
+async function checkServer() {
+    const seq = ++healthSeq;
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), HEALTH_TIMEOUT_MS);
+    let up = false;
+    try {
+        up = (await fetch(HEALTH_URL, { cache: 'no-store', signal: abort.signal })).ok;
+    } catch (_) {
+        // offline, DNS or connection failure, timeout
+    } finally {
+        clearTimeout(timer);
+    }
+    // A check finishing late must not overwrite a newer answer.
+    if (seq === healthSeq) setServerDown(!up);
+}
+
+function setServerDown(down) {
+    healthSeq++; // whatever check is still under way is older news now
+    $('server-down').hidden = !down;
+}
+
+// Back from switching the VPN on: drop the warning if it no longer holds.
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && !$('server-down').hidden) checkServer();
+});
+
 // ---------- upload ----------
 async function upload(blob, mime) {
     const form = new FormData();
@@ -732,6 +771,7 @@ async function upload(blob, mime) {
         throw new Error(STR.invalid_token);
     }
     if (!res.ok) throw new Error('HTTP ' + res.status);
+    setServerDown(false);
 }
 
 $('send').addEventListener('click', async () => {

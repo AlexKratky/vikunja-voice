@@ -38,6 +38,7 @@ Invalid input gets `422` with Laravel's JSON validation errors. A `202` means th
 ## Features
 
 - One-tap recorder PWA, installable on mobile, with browser-local history and retry
+- Works offline: when recording starts and stops, the app checks that the server answers (`/up`) and, if it doesn't (offline, VPN off), warns that sending will likely fail; the recording is still kept in the history to send later
 - Microphone picker when the device has more than one input; while recording it shows which input is live
 - Stop and continue: in review, tap the mic again to add more to the same recording; the mic is released in between
 - Keeps the screen on while recording. If the phone silences the mic anyway (Android does that to an app left in the background for about a minute), the recording stops for review instead of filling up with silence, with a notification that shows on the lock screen (permission is asked on the first recording)

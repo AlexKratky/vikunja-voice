@@ -35,6 +35,7 @@ return [
         'history_note' => 'only in this browser',
         'delete_all' => 'Delete all',
         'mic' => 'Microphone',
+        'server_down' => 'Server unreachable (offline or VPN off?) — sending will likely fail. The recording waits in the history until you send it.',
     ],
 
     // Passed to public/js/app.js via window.VV; keys shared with the

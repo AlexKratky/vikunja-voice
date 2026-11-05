@@ -447,6 +447,16 @@ button { font: inherit; }
     50% { opacity: 0.35; }
 }
 
+/* Server unreachable: sits right under the status pill, closer than the card gap. */
+#server-down {
+    margin: -0.6rem 0 0;
+    max-width: 26rem;
+    color: var(--warn);
+    font-size: 0.85rem;
+    line-height: 1.45;
+    text-align: center;
+}
+
 /* ---------- preview player ---------- */
 
 #preview {

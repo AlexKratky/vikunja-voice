@@ -49,6 +49,7 @@
                 <span>{{ __('voice.js.import') }}</span>
             </button>
             <p id="status" role="status" data-state="ready">{{ __('voice.js.ready') }}</p>
+            <p id="server-down" role="status" hidden>{{ __('voice.ui.server_down') }}</p>
 
             <div id="preview" hidden>
                 <div class="player">

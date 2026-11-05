@@ -1,4 +1,4 @@
-const CACHE = 'vv-v13';
+const CACHE = 'vv-v14';
 const ASSETS = ['/', '/css/app.css', '/js/app.js', '/manifest.json'];
 
 // Web Share Target hand-off: the shared file is parked here between the
@@ -53,6 +53,10 @@ self.addEventListener('fetch', (e) => {
         })());
         return;
     }
+
+    // The health check (checkServer() in app.js) has to reach the server:
+    // a cached answer would report it up while it is unreachable.
+    if (url.pathname === '/up') return;
 
     if (e.request.method !== 'GET') return;
     e.respondWith(
