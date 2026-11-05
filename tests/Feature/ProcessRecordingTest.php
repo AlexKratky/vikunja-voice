@@ -1037,7 +1037,7 @@ it('marks the existing task the speaker names as done, keeping everything else',
         ->and(createTaskRequests())->toHaveCount(0);
 
     [$update] = updateTaskRequests();
-    expect($update->data())->toBe(vikunjaTask147(['done' => true]));
+    expect(json_decode($update->body(), true))->toBe(vikunjaTask147(['done' => true]));
 
     Http::assertSent(fn ($r) => str_contains($r->url(), 'ntfy.test/topic')
         && $r->body() === '☑️ Done: Koupit olej na olejování stolu'
@@ -1119,7 +1119,7 @@ it('changes only what the speaker said on the existing task and adds reminders',
         ->and(createTaskRequests())->toHaveCount(0);
 
     [$update] = updateTaskRequests();
-    expect($update->data())->toBe(vikunjaTask147([
+    expect(json_decode($update->body(), true))->toBe(vikunjaTask147([
         'due_date' => '2026-11-13T23:59:00+01:00',
         'priority' => 4,
         'reminders' => [
@@ -1144,7 +1144,7 @@ it('keeps the due date when only the priority changes', function () {
     runJob(makeRecording());
 
     [$update] = updateTaskRequests();
-    expect($update->data())->toBe(vikunjaTask147(['priority' => 4]));
+    expect(json_decode($update->body(), true))->toBe(vikunjaTask147(['priority' => 4]));
 
     Http::assertSent(fn ($r) => str_contains($r->url(), 'ntfy.test/topic')
         && $r->body() === '✏️ Upraveno: Koupit olej na olejování stolu (priorita 4)');

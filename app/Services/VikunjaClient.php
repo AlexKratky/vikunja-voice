@@ -102,7 +102,9 @@ class VikunjaClient
      */
     public function updateTask(int $taskId, \Closure $change): array
     {
-        $task = $this->client()->get("/tasks/{$taskId}")->throw()->json();
+        // Objects below the top level: as PHP arrays an empty `{}` (such as
+        // `related_tasks`) would go back as `[]`, which Vikunja rejects.
+        $task = get_object_vars($this->client()->get("/tasks/{$taskId}")->throw()->object());
 
         return $this->client()->post("/tasks/{$taskId}", $change($task))->throw()->json();
     }

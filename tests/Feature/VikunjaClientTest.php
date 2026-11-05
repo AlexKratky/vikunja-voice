@@ -169,6 +169,19 @@ it('lists open tasks due by a time, soonest first, with only the conditions give
         ->and($none)->not->toHaveKey('s');
 });
 
+it('sends empty objects of the task back as objects', function () {
+    Http::fake([
+        'vikunja.test/api/v1/tasks/147' => fn ($r) => $r->method() === 'GET'
+            ? Http::response('{"id":147,"title":"Olej","related_tasks":{},"reminders":[{"reminder":"2026-11-06T09:00:00+01:00"}]}')
+            : Http::response(['id' => 147]),
+    ]);
+
+    (new VikunjaClient)->updateTask(147, fn (array $current) => [...$current, 'done' => true]);
+
+    $post = Http::recorded(fn ($r) => $r->method() === 'POST')->first()[0];
+    expect($post->body())->toBe('{"id":147,"title":"Olej","related_tasks":{},"reminders":[{"reminder":"2026-11-06T09:00:00+01:00"}],"done":true}');
+});
+
 it('throws on error responses', function () {
     Http::fake(['vikunja.test/*' => Http::response('', 503)]);
 
