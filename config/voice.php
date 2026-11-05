@@ -29,6 +29,7 @@ return [
     // left out of the prompt, so its phrase is dictated as an ordinary task.
     'commands' => [
         'create_if_missing' => (bool) env('VOICE_COMMAND_CREATE_IF_MISSING', true),
+        'comment' => (bool) env('VOICE_COMMAND_COMMENT', true),
     ],
 
     'kuma' => [

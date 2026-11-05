@@ -124,6 +124,15 @@ it('searches open tasks by a term', function () {
     Http::assertSent(fn ($r) => $r->data()['s'] === 'olej' && $r->data()['filter'] === 'done = false');
 });
 
+it('adds a comment via PUT', function () {
+    Http::fake(['vikunja.test/api/v1/tasks/147/comments' => Http::response(['id' => 1])]);
+
+    (new VikunjaClient)->addComment(147, '<p>Koupím v Hornbachu</p>');
+
+    Http::assertSent(fn ($r) => $r->method() === 'PUT'
+        && $r->data() === ['comment' => '<p>Koupím v Hornbachu</p>']);
+});
+
 it('throws on error responses', function () {
     Http::fake(['vikunja.test/*' => Http::response('', 503)]);
 

@@ -44,7 +44,7 @@ Invalid input gets `422` with Laravel's JSON validation errors. A `202` means th
 - Accepts audio shared from other Android apps (Web Share Target), and can share or download recordings back out
 - Structured extraction: title, description, due date, priority (Vikunja 0–5 scale), project, labels
 - Several tasks from one recording: say "new task" out loud and keep dictating; a change of topic alone never splits
-- [Voice commands](#voice-commands), each with its own switch: create a task only if it doesn't exist yet
+- [Voice commands](#voice-commands), each with its own switch: create a task only if it doesn't exist yet, add a note to an existing task
 - Auto-assign every task to a configured user and/or auto-attach a configured label
 - Daily retention pruning of processed audio files
 - Typed notes over the same pipeline (`POST /api/notes`), e.g. from a dashboard or a script
@@ -57,6 +57,7 @@ Besides dictating new tasks, you can say a command. Every command is on by defau
 | Command | Say (en / cs) | What happens | Switch |
 |---|---|---|---|
 | Create if missing | "create a task if it doesn't exist: …" / „založ úkol, pokud neexistuje: …" | The task is created only if none of your open tasks is the same one; otherwise nothing is created and the notification links to the existing task. When unsure, the task is created — a duplicate beats a lost note. | `VOICE_COMMAND_CREATE_IF_MISSING` |
+| Add a note | "add to the task … that …" / „doplň k úkolu …, že …" | The note (with its transcript) becomes a comment on that task. If the task is not found, the note is created as a new task instead, so it is never lost. | `VOICE_COMMAND_COMMENT` |
 
 **Finding the existing task.** A command about an existing task is compared with your open tasks: the 50 newest plus those containing any of the keywords the model picked from the dictation, each searched on its own in titles and descriptions (Vikunja's search takes a phrase as one substring). A second, text-only Gemini request picks the task — only ever one of those, and none when unsure. The decision is stored before anything is done, so a retry never asks again. Recordings without such a command never read your task list.
 
@@ -99,7 +100,7 @@ Then fill in `.env`:
 | `GEMINI_API_KEY` | key from Google AI Studio |
 | `GEMINI_MODEL` | default `gemini-2.5-flash` |
 | `VIKUNJA_URL` | e.g. `https://vikunja.example.com` |
-| `VIKUNJA_API_TOKEN` | Vikunja → Settings → API tokens (scopes: projects read, tasks write, labels read/write; the [voice commands](#voice-commands) also need tasks read all) |
+| `VIKUNJA_API_TOKEN` | Vikunja → Settings → API tokens (scopes: projects read, tasks write, labels read/write; the [voice commands](#voice-commands) also need tasks read all and task comments create) |
 | `VIKUNJA_DEFAULT_PROJECT_ID` | inbox project ID used as fallback |
 | `VIKUNJA_AUTO_ASSIGN_USERNAME` | user every task gets assigned to (empty = off) |
 | `VIKUNJA_AUTO_LABEL` | label title attached to every task (empty = off) |

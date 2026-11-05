@@ -76,6 +76,7 @@ class ExistingTaskMatcher
 
         $raw = $this->gemini->matchExisting(
             array_map(fn (array $task) => [
+                'kind' => $task['action'] === 'create_if_missing' ? 'new' : 'existing',
                 'title' => $task['title'],
                 'description' => $task['description'],
             ], array_values($pending)),

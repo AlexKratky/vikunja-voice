@@ -42,19 +42,21 @@ class GeminiClient
     }
 
     /**
-     * Decide which new tasks already exist among the open ones. Text only,
-     * and one English prompt serves every locale: the input is the model's
-     * own extraction and only the ids it returns are acted on.
+     * Decide which open task each item is about: for a `new` one the same
+     * task, for an `existing` one the task the speaker named. Text only, and
+     * one English prompt serves every locale: the input is the model's own
+     * extraction and only the ids it returns are acted on.
      *
-     * @param  list<array{title: string, description: string}>  $tasks
+     * @param  list<array{kind: 'new'|'existing', title: string, description: string}>  $items
      * @param  list<array{id: int, title: string, project: string}>  $openTasks
      */
-    public function matchExisting(array $tasks, array $openTasks): array
+    public function matchExisting(array $items, array $openTasks): array
     {
-        $newList = implode("\n", array_map(
-            fn ($task, $i) => ($i + 1).". {$task['title']}".($task['description'] !== '' ? " — {$task['description']}" : ''),
-            $tasks,
-            array_keys($tasks),
+        $itemList = implode("\n", array_map(
+            fn ($item, $i) => ($i + 1).". [{$item['kind']} task] {$item['title']}"
+                .($item['description'] !== '' ? " — {$item['description']}" : ''),
+            $items,
+            array_keys($items),
         ));
         $openList = implode("\n", array_map(
             fn ($task) => "- {$task['id']}: {$task['title']} [{$task['project']}]",
@@ -63,7 +65,7 @@ class GeminiClient
 
         return $this->request(
             self::MATCH_PROMPT,
-            ['text' => "New tasks:\n{$newList}\n\nOpen tasks:\n{$openList}"],
+            ['text' => "Items:\n{$itemList}\n\nOpen tasks:\n{$openList}"],
             self::MATCH_SCHEMA,
         );
     }
@@ -236,12 +238,15 @@ class GeminiClient
     ];
 
     private const MATCH_PROMPT = <<<'PROMPT'
-You check whether tasks the user has just dictated already exist among their open tasks in the Vikunja app.
+You find which of the user's open tasks in the Vikunja app the items they have just dictated are about.
 
-The user message lists the new tasks (numbered, title — description) and the user's open tasks (id: title [project]). Return one decision for every new task:
-- `task`: the number of the new task.
+The user message lists the items (numbered: [kind] title — description) and the user's open tasks (id: title [project]). Return one decision for every item:
+- `task`: the number of the item.
 - `reason`: one short sentence explaining the decision.
-- `existing_task_id`: the id of the open task that is the same piece of work — the same action on the same thing, even when it is worded differently, inflected, abbreviated, more or less detailed, in another language or in another project. A task that only shares the topic or the object but means a different action, or is a follow-up step, is NOT the same. If no open task is the same, or you are unsure, null: a duplicate task is a much smaller harm than a task that never gets created. Never return an id that is not in the list.
+- `existing_task_id`: the id of the open task the item is about, or null.
+  - [new task]: the user wants this task created unless it already exists. Return the open task that is the same piece of work — the same action on the same thing, even when it is worded differently, inflected, abbreviated, more or less detailed, in another language or in another project. A task that only shares the topic or the object but means a different action, or is a follow-up step, is NOT the same. If no open task is the same, or you are unsure, null: a duplicate task is a much smaller harm than a task that never gets created.
+  - [existing task]: the user refers to one of their tasks by this name, to act on it. Return the open task they mean; the name may be shortened, inflected, misheard or paraphrased. If no open task fits, or several fit equally well, null: acting on the wrong task is worse than not acting.
+Never return an id that is not in the list.
 PROMPT;
 
     private function systemPrompt(array $projects, array $labels, \DateTimeImmutable $now): string
@@ -266,11 +271,13 @@ PROMPT;
             'actions' => [
                 'create' => 'a new task — the default for everything that is not one of the commands below.',
                 'create_if_missing' => 'create the task only if it does not exist yet ("create a task if it doesn\'t exist", "only if it doesn\'t exist yet", "unless it already exists", "if I don\'t have it yet", or an obvious variant). The fields are those of a new task. The phrase belongs to the task it is said with; said once for all tasks (e.g. "create these if they don\'t exist yet"), it applies to all of them.',
+                'comment' => 'add a note to an existing task ("add to the task … that …", "a note for the … task", or an obvious variant). `title`: the existing task as the speaker named it; `description`: the note itself, cleaned up like a description.',
             ],
             'outro' => 'The command phrase itself belongs to no field, just like the "new task" cue. A different command starts a new item even without the "new task" cue, and a command is an item even when no task gets created. A task that merely mentions another task is not a command.',
             'search_terms' => '- `search_terms`: with :actions — 2 to 5 keywords to find the existing task by: the distinctive words of the task, each a single word cut down to its stem so other forms match too, plus an obvious synonym (e.g. "invoices" → "invoice"; "the dentist\'s" → "dentist"). Each term is searched separately as a substring of task titles and descriptions. With "create" an empty array.',
             'examples' => [
                 'create_if_missing' => '- "Create a task if it doesn\'t exist: renew the car insurance" → ONE item: action "create_if_missing", title "Renew car insurance", search_terms ["insurance", "car", "renew"], description = null.',
+                'comment' => '- "Add to the deploy script task that it only fails on staging" → action "comment", title "Deploy script", description "Only fails on staging", search_terms ["deploy", "script"].',
             ],
         ];
     }
@@ -282,11 +289,13 @@ PROMPT;
             'actions' => [
                 'create' => 'nový úkol — výchozí pro vše, co není žádný z příkazů níže.',
                 'create_if_missing' => 'založ úkol jen pokud ještě neexistuje („založ úkol, pokud neexistuje", „pokud ještě neexistuje", „jestli ho tam ještě nemám", „pokud už tam není", nebo zjevná varianta). Pole jsou jako u nového úkolu. Fráze patří k úkolu, u kterého zazní; řekne-li ji mluvčí jednou pro všechny úkoly (např. „založ tyhle úkoly, pokud neexistujou"), platí pro všechny.',
+                'comment' => 'doplň poznámku k existujícímu úkolu („doplň k úkolu …, že …", „k úkolu … přidej …", „poznámka k úkolu …", nebo zjevná varianta). `title`: existující úkol tak, jak ho mluvčí pojmenoval; `description`: samotná poznámka, vyčištěná jako popis.',
             ],
             'outro' => 'Samotná fráze příkazu nepatří do žádného pole, stejně jako fráze o novém úkolu. Jiný příkaz začíná novou položku i bez fráze o novém úkolu a příkaz je položka, i když se žádný úkol nezakládá. Úkol, který jen zmiňuje jiný úkol, není příkaz.',
             'search_terms' => '- `search_terms`: u :actions — 2 až 5 klíčových slov, podle kterých se existující úkol najde: výstižná slova úkolu, každé jako jedno slovo zkrácené na kořen bez koncovky, aby se našly i jiné tvary; když se kořen v jiných tvarech mění, uveď oba (např. „stůl" → „stůl" a „stol"; „fakturu" → „faktur"; „doktorovi" → „doktor"), případně zjevné synonymum („doktor" → „lékař"). Každé slovo se hledá samostatně jako podřetězec v názvu a popisu úkolů. U „create" prázdné pole.',
             'examples' => [
                 'create_if_missing' => '- „Založ úkol, pokud neexistuje: koupit olej na stůl" → JEDNA položka: action „create_if_missing", title „Koupit olej na stůl", search_terms [„olej", „stůl", „stol"], description = null.',
+                'comment' => '- „Doplň k úkolu s olejem, že ho koupím v Hornbachu" → action „comment", title „Olej", description „Koupím ho v Hornbachu", search_terms [„olej"].',
             ],
         ];
     }

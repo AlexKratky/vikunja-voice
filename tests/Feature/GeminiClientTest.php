@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\ExtractionValidator;
 use App\Services\GeminiClient;
 use Illuminate\Support\Facades\Http;
 
@@ -158,7 +159,7 @@ it('requests a whole transcript plus an ordered list of tasks that may be empty'
             && $task['propertyOrdering'][0] === 'transcript_segment'
             && $task['propertyOrdering'][1] === 'action'
             && $task['properties']['transcript_segment'] === ['type' => 'STRING', 'nullable' => true]
-            && $task['properties']['action']['enum'] === ['create', 'create_if_missing']
+            && $task['properties']['action']['enum'] === ExtractionValidator::ACTIONS
             && $task['properties']['search_terms'] === ['type' => 'ARRAY', 'items' => ['type' => 'STRING']];
     });
 });
@@ -268,6 +269,26 @@ it('leaves a switched-off command out of the prompt and the schema', function (s
         $task = $request->data()['generationConfig']['responseSchema']['properties']['tasks']['items'];
 
         return ! str_contains($prompt, 'create_if_missing')
+            && str_contains($prompt, '`action`')
+            && ! in_array('create_if_missing', $task['properties']['action']['enum'], true)
+            && in_array('comment', $task['properties']['action']['enum'], true);
+    });
+})->with(['en', 'cs']);
+
+it('asks for the plain task schema with every command switched off', function (string $locale) {
+    config()->set('voice.locale', $locale);
+    config()->set('voice.commands', array_map(fn () => false, config('voice.commands')));
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => Http::response(geminiResponse(['transcript' => '', 'tasks' => []])),
+    ]);
+
+    (new GeminiClient)->extract('x', 'audio/webm', [], [], new DateTimeImmutable);
+
+    Http::assertSent(function ($request) {
+        $prompt = $request->data()['systemInstruction']['parts'][0]['text'];
+        $task = $request->data()['generationConfig']['responseSchema']['properties']['tasks']['items'];
+
+        return ! str_contains($prompt, 'create_if_missing')
             && ! str_contains($prompt, '`action`')
             && ! str_contains($prompt, '`search_terms`')
             && ! array_key_exists('action', $task['properties'])
@@ -277,7 +298,7 @@ it('leaves a switched-off command out of the prompt and the schema', function (s
     });
 })->with(['en', 'cs']);
 
-it('asks which new tasks already exist with a text-only request', function () {
+it('asks which open task each item is about with a text-only request', function () {
     Http::fake([
         'generativelanguage.googleapis.com/*' => Http::response(geminiResponse([
             'decisions' => [['task' => 1, 'reason' => 'Same purchase', 'existing_task_id' => 147]],
@@ -286,8 +307,8 @@ it('asks which new tasks already exist with a text-only request', function () {
 
     $result = (new GeminiClient)->matchExisting(
         [
-            ['title' => 'Koupit olej na stůl', 'description' => ''],
-            ['title' => 'Zavolat doktorovi', 'description' => 'Kvůli objednání'],
+            ['kind' => 'new', 'title' => 'Koupit olej na stůl', 'description' => ''],
+            ['kind' => 'existing', 'title' => 'Doktor', 'description' => 'Objednat na úterý'],
         ],
         [
             ['id' => 147, 'title' => 'Koupit olej na olejování stolu', 'project' => 'Inbox'],
@@ -302,9 +323,9 @@ it('asks which new tasks already exist with a text-only request', function () {
         $schema = $body['generationConfig']['responseSchema'];
         $decision = $schema['properties']['decisions']['items'];
 
-        return $body['contents'][0]['parts'] === [['text' => "New tasks:\n"
-            ."1. Koupit olej na stůl\n"
-            ."2. Zavolat doktorovi — Kvůli objednání\n\n"
+        return $body['contents'][0]['parts'] === [['text' => "Items:\n"
+            ."1. [new task] Koupit olej na stůl\n"
+            ."2. [existing task] Doktor — Objednat na úterý\n\n"
             ."Open tasks:\n"
             ."- 147: Koupit olej na olejování stolu [Inbox]\n"
             .'- 145: Vypnout NASku [Domov]']]

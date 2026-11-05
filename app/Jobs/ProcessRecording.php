@@ -82,7 +82,6 @@ class ProcessRecording implements ShouldQueue
 
         for ($i = count($taskIds); $i < $total; $i++) {
             $task = $tasks[$i];
-            $existingId = $task['match']['task_id'] ?? null;
             $description = $this->buildDescription(
                 $task['description'],
                 $this->transcriptFor($extraction, $i),
@@ -95,9 +94,8 @@ class ProcessRecording implements ShouldQueue
             // even with success notifications off, since either nothing new
             // shows up in Vikunja or the model picked the task acted on.
             [$taskId, $message] = match ($task['action'] ?? 'create') {
-                'create_if_missing' => $existingId !== null
-                    ? [$existingId, '🔁 '.$this->say('task_exists', ['title' => $task['match']['title']])]
-                    : $this->create($vikunja, $task, $description),
+                'create_if_missing' => $this->createIfMissing($vikunja, $task, $description),
+                'comment' => $this->comment($vikunja, $task, $description),
                 default => $this->create($vikunja, $task, $description),
             };
 
@@ -212,6 +210,37 @@ class ProcessRecording implements ShouldQueue
         $this->autoAssign($vikunja, $taskId);
 
         return [$taskId, config('voice.ntfy.notify_success') ? "✅ {$task['title']}" : null];
+    }
+
+    /**
+     * @return array{0: int, 1: ?string}
+     */
+    private function createIfMissing(VikunjaClient $vikunja, array $task, string $description): array
+    {
+        $existing = $task['match'];
+
+        return $existing['task_id'] !== null
+            ? [$existing['task_id'], '🔁 '.$this->say('task_exists', ['title' => $existing['title']])]
+            : $this->create($vikunja, $task, $description);
+    }
+
+    /**
+     * @return array{0: int, 1: string}
+     */
+    private function comment(VikunjaClient $vikunja, array $task, string $description): array
+    {
+        $existing = $task['match'];
+
+        if ($existing['task_id'] === null) {
+            // Nothing to attach the note to: kept as a task of its own rather than lost.
+            [$taskId] = $this->create($vikunja, $task, $description);
+
+            return [$taskId, '📝 '.$this->say('comment_as_task', ['title' => $task['title']])];
+        }
+
+        $vikunja->addComment($existing['task_id'], $description);
+
+        return [$existing['task_id'], '💬 '.$this->say('comment_added', ['title' => $existing['title']])];
     }
 
     // Explicit locale: queue workers don't run the SetVoiceLocale HTTP middleware.

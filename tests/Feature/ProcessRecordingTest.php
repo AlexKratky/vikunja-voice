@@ -786,7 +786,7 @@ it('creates nothing for a create-if-missing task that already exists and links t
     // The model saw the task found only by searching beside the newest one.
     [, $match] = geminiRequests();
     expect($match->data()['contents'][0]['parts'][0]['text'])
-        ->toContain("1. Koupit olej na stůl\n")
+        ->toContain("1. [new task] Koupit olej na stůl\n")
         ->toContain('- 145: Vypnout NASku [Inbox]')
         ->toContain('- 147: Koupit olej na olejování stolu [Nákupy]');
 
@@ -890,7 +890,7 @@ it('checks only the create-if-missing task among several and keeps ids aligned',
         ->and($creates[1]->data()['description'])->toContain('(task 3/3)');
 
     [, $match] = geminiRequests();
-    expect($match->data()['contents'][0]['parts'][0]['text'])->toStartWith("New tasks:\n1. Koupit olej na stůl\n\n");
+    expect($match->data()['contents'][0]['parts'][0]['text'])->toStartWith("Items:\n1. [new task] Koupit olej na stůl\n\n");
 });
 
 it('resumes the existing check after a failure without extracting again', function () {
@@ -932,4 +932,66 @@ it('resumes the existing check after a failure without extracting again', functi
     runJob($recording);
     expect(geminiRequests())->toHaveCount(2)
         ->and(Http::recorded(fn ($r) => str_contains($r->url(), 'ntfy.test')))->toHaveCount(1);
+});
+
+function commentTask(array $overrides = []): array
+{
+    return geminiTask(array_merge([
+        'action' => 'comment',
+        'title' => 'Olej',
+        'description' => 'Koupím ho v Hornbachu',
+        'search_terms' => ['olej'],
+    ], $overrides));
+}
+
+it('adds a note to the existing task the speaker names', function () {
+    config()->set('voice.ntfy.notify_success', false);
+    fakeExistingCheck(
+        ['transcript' => 'Doplň k úkolu s olejem, že ho koupím v Hornbachu', 'tasks' => [commentTask()]],
+        [['task' => 1, 'reason' => 'The oil task', 'existing_task_id' => 147]],
+        ['vikunja.test/api/v1/tasks/*/comments' => Http::response(['id' => 1])],
+    );
+    $recording = makeRecording();
+
+    runJob($recording);
+
+    $recording->refresh();
+    expect($recording->status)->toBe('done')
+        ->and($recording->vikunja_task_ids)->toBe([147])
+        ->and(createTaskRequests())->toHaveCount(0);
+
+    Http::assertSent(fn ($r) => $r->method() === 'PUT'
+        && str_ends_with($r->url(), '/api/v1/tasks/147/comments')
+        && $r->data()['comment'] === '<p>Koupím ho v Hornbachu</p><hr><p><em>Transcript:</em> Doplň k úkolu s olejem, že ho koupím v Hornbachu</p>');
+
+    [, $match] = geminiRequests();
+    expect($match->data()['contents'][0]['parts'][0]['text'])
+        ->toStartWith("Items:\n1. [existing task] Olej — Koupím ho v Hornbachu\n\n");
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'ntfy.test/topic')
+        && $r->body() === '💬 Note added to: Koupit olej na olejování stolu'
+        && $r->header('X-Click') === ['https://vikunja.test/tasks/147']);
+});
+
+it('keeps the note as a new task when the task to add to is not found', function () {
+    config()->set('voice.locale', 'cs');
+    config()->set('voice.ntfy.notify_success', false);
+    fakeExistingCheck(
+        ['transcript' => 'x', 'tasks' => [commentTask()]],
+        [['task' => 1, 'reason' => 'No such task', 'existing_task_id' => null]],
+    );
+    $recording = makeRecording();
+
+    runJob($recording);
+
+    expect($recording->refresh()->vikunja_task_ids)->toBe([42]);
+    Http::assertNotSent(fn ($r) => str_contains($r->url(), '/comments'));
+
+    [$create] = createTaskRequests();
+    expect($create->data()['title'])->toBe('Olej')
+        ->and($create->data()['description'])->toContain('<p>Koupím ho v Hornbachu</p>');
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'ntfy.test/topic')
+        && $r->body() === '📝 Úkol k doplnění nenalezen, poznámka je nový úkol: Olej'
+        && $r->header('X-Click') === ['https://vikunja.test/tasks/42']);
 });

@@ -63,6 +63,11 @@ class VikunjaClient
         return $this->client()->put("/projects/{$projectId}/tasks", $payload)->throw()->json();
     }
 
+    public function addComment(int $taskId, string $html): void
+    {
+        $this->client()->put("/tasks/{$taskId}/comments", ['comment' => $html])->throw();
+    }
+
     public function findUserId(string $username): ?int
     {
         $users = $this->client()->get('/users', ['s' => $username])->throw()->json() ?? [];
