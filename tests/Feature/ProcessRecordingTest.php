@@ -1090,3 +1090,90 @@ it('sends no reminders field without reminders', function () {
     [$create] = createTaskRequests();
     expect($create->data())->not->toHaveKey('reminders');
 });
+
+function updateTask(array $overrides = []): array
+{
+    return geminiTask(array_merge([
+        'action' => 'update',
+        'title' => 'Olej',
+        'description' => null,
+        'due_date' => '2026-11-13T23:59:00+01:00',
+        'priority' => 4,
+        'reminders' => ['2026-11-12T09:00:00+01:00'],
+        'search_terms' => ['olej'],
+    ], $overrides));
+}
+
+it('changes only what the speaker said on the existing task and adds reminders', function () {
+    config()->set('voice.ntfy.notify_success', false);
+    fakeExistingCheck(
+        ['transcript' => 'x', 'tasks' => [updateTask()]],
+        [['task' => 1, 'reason' => 'The oil task', 'existing_task_id' => 147]],
+        ['vikunja.test/api/v1/tasks/147' => Http::response(vikunjaTask147())],
+    );
+    $recording = makeRecording();
+
+    runJob($recording);
+
+    expect($recording->refresh()->vikunja_task_ids)->toBe([147])
+        ->and(createTaskRequests())->toHaveCount(0);
+
+    [$update] = updateTaskRequests();
+    expect($update->data())->toBe(vikunjaTask147([
+        'due_date' => '2026-11-13T23:59:00+01:00',
+        'priority' => 4,
+        'reminders' => [
+            ['reminder' => '2026-11-06T09:00:00+01:00', 'relative_period' => 0, 'relative_to' => ''],
+            ['reminder' => '2026-11-12T09:00:00+01:00'],
+        ],
+    ]));
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'ntfy.test/topic')
+        && $r->body() === '✏️ Updated: Koupit olej na olejování stolu (due Nov 13, 23:59, priority 4, reminder Nov 12, 09:00)'
+        && $r->header('X-Click') === ['https://vikunja.test/tasks/147']);
+});
+
+it('keeps the due date when only the priority changes', function () {
+    config()->set('voice.locale', 'cs');
+    fakeExistingCheck(
+        ['transcript' => 'x', 'tasks' => [updateTask(['due_date' => null, 'reminders' => []])]],
+        [['task' => 1, 'reason' => 'The oil task', 'existing_task_id' => 147]],
+        ['vikunja.test/api/v1/tasks/147' => Http::response(vikunjaTask147())],
+    );
+
+    runJob(makeRecording());
+
+    [$update] = updateTaskRequests();
+    expect($update->data())->toBe(vikunjaTask147(['priority' => 4]));
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'ntfy.test/topic')
+        && $r->body() === '✏️ Upraveno: Koupit olej na olejování stolu (priorita 4)');
+});
+
+it('leaves the existing task alone when nothing to change was said', function () {
+    fakeExistingCheck(
+        ['transcript' => 'x', 'tasks' => [updateTask(['due_date' => null, 'priority' => null, 'reminders' => []])]],
+        [['task' => 1, 'reason' => 'The oil task', 'existing_task_id' => 147]],
+    );
+
+    runJob(makeRecording());
+
+    expect(updateTaskRequests())->toHaveCount(0);
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'ntfy.test/topic')
+        && $r->body() === '✏️ Nothing to change: Koupit olej na olejování stolu');
+});
+
+it('changes nothing when the task to update is not found', function () {
+    fakeExistingCheck(
+        ['transcript' => 'x', 'tasks' => [updateTask(['title' => 'Lak'])]],
+        [['task' => 1, 'reason' => 'No varnish task', 'existing_task_id' => null]],
+    );
+    $recording = makeRecording();
+
+    runJob($recording);
+
+    expect($recording->refresh()->vikunja_task_ids)->toBe([null])
+        ->and(updateTaskRequests())->toHaveCount(0)
+        ->and(createTaskRequests())->toHaveCount(0);
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'ntfy.test/topic') && $r->body() === '❓ Task not found: Lak');
+});

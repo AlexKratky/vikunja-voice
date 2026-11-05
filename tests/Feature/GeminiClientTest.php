@@ -276,7 +276,7 @@ it('leaves a switched-off command out of the prompt and the schema', function (s
     });
 })->with(['en', 'cs']);
 
-it('asks for reminders only while they are switched on', function (string $locale, string $rule) {
+it('asks for reminders only while they are switched on', function (string $locale, string $rule, string $onUpdate) {
     config()->set('voice.locale', $locale);
     Http::fake([
         'generativelanguage.googleapis.com/*' => Http::response(geminiResponse(['transcript' => '', 'tasks' => []])),
@@ -290,15 +290,15 @@ it('asks for reminders only while they are switched on', function (string $local
     $schema = fn (array $body) => $body['generationConfig']['responseSchema']['properties']['tasks']['items'];
     $prompt = fn (array $body) => $body['systemInstruction']['parts'][0]['text'];
 
-    expect($prompt($on))->toContain('- `reminders`:')->toContain($rule)
+    expect($prompt($on))->toContain('- `reminders`:')->toContain($rule)->toContain($onUpdate)
         ->and($schema($on)['properties'])->toHaveKey('reminders')
-        ->and($prompt($off))->not->toContain('`reminders`')
+        ->and($prompt($off))->not->toContain('`reminders`')->not->toContain($onUpdate)
         ->and($schema($off)['properties'])->not->toHaveKey('reminders')
         ->and($schema($off)['propertyOrdering'])->not->toContain('reminders')
         ->and($schema($off)['properties'])->toHaveKey('action');
 })->with([
-    'en' => ['en', '"remind me tomorrow at 9"'],
-    'cs' => ['cs', '„připomeň mi zítra v 9"'],
+    'en' => ['en', '"remind me tomorrow at 9"', 'or add a reminder to it'],
+    'cs' => ['cs', '„připomeň mi zítra v 9"', 'nebo k němu přidej připomenutí'],
 ]);
 
 it('asks for the plain task schema with every command switched off', function (string $locale) {

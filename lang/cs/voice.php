@@ -14,6 +14,12 @@ return [
     'comment_as_task' => 'Úkol k doplnění nenalezen, poznámka je nový úkol: :title',
     'task_completed' => 'Hotovo: :title',
     'task_not_found' => 'Úkol nenalezen: :title',
+    'task_updated' => 'Upraveno: :title (:changes)',
+    'task_unchanged' => 'Nebylo co změnit: :title',
+    'change_due' => 'termín :at',
+    'change_priority' => 'priorita :priority',
+    'change_reminder' => 'připomínka :at',
+    'time_format' => 'j. n. H:i',
     'kuma_failed_jobs' => '{1} :count nahrávka selhala, viz failed_jobs|[2,4] :count nahrávky selhaly, viz failed_jobs|[5,*] :count nahrávek selhalo, viz failed_jobs',
 
     'ui' => [

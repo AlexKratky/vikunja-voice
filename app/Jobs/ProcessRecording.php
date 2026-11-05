@@ -97,6 +97,7 @@ class ProcessRecording implements ShouldQueue
                 'create_if_missing' => $this->createIfMissing($vikunja, $task, $description),
                 'comment' => $this->comment($vikunja, $task, $description),
                 'complete' => $this->complete($vikunja, $task),
+                'update' => $this->updateExisting($vikunja, $task),
                 default => $this->create($vikunja, $task, $description),
             };
 
@@ -262,6 +263,58 @@ class ProcessRecording implements ShouldQueue
         $vikunja->updateTask($existing['task_id'], fn (array $current) => [...$current, 'done' => true]);
 
         return [$existing['task_id'], '☑️ '.$this->say('task_completed', ['title' => $existing['title']])];
+    }
+
+    /**
+     * Only what was said changes: a null due date or a zero priority means
+     * "not mentioned", and reminders are added to those the task has.
+     *
+     * @return array{0: ?int, 1: string}
+     */
+    private function updateExisting(VikunjaClient $vikunja, array $task): array
+    {
+        $existing = $task['match'];
+
+        if ($existing['task_id'] === null) {
+            return [null, '❓ '.$this->say('task_not_found', ['title' => $task['title']])];
+        }
+
+        $changes = array_filter([
+            'due_date' => $task['due_date'],
+            'priority' => $task['priority'] ?: null,
+        ]);
+        $reminders = $task['reminders'] ?? [];
+
+        if ($changes === [] && $reminders === []) {
+            return [$existing['task_id'], '✏️ '.$this->say('task_unchanged', ['title' => $existing['title']])];
+        }
+
+        $vikunja->updateTask($existing['task_id'], fn (array $current) => [
+            ...$current,
+            ...$changes,
+            'reminders' => [
+                ...($current['reminders'] ?? []),
+                ...array_map(fn (string $at) => ['reminder' => $at], $reminders),
+            ],
+        ]);
+
+        $described = [
+            ...(isset($changes['due_date']) ? [$this->say('change_due', ['at' => $this->formatTime($changes['due_date'])])] : []),
+            ...(isset($changes['priority']) ? [$this->say('change_priority', ['priority' => $changes['priority']])] : []),
+            ...array_map(fn (string $at) => $this->say('change_reminder', ['at' => $this->formatTime($at)]), $reminders),
+        ];
+
+        return [$existing['task_id'], '✏️ '.$this->say('task_updated', [
+            'title' => $existing['title'],
+            'changes' => implode(', ', $described),
+        ])];
+    }
+
+    private function formatTime(string $at): string
+    {
+        return (new \DateTimeImmutable($at))
+            ->setTimezone(new \DateTimeZone(config('voice.timezone')))
+            ->format($this->say('time_format'));
     }
 
     // Explicit locale: queue workers don't run the SetVoiceLocale HTTP middleware.

@@ -5,10 +5,10 @@ namespace App\Services;
 class ExtractionValidator
 {
     /** What an item can do; `create` is the default and always available. */
-    public const ACTIONS = ['create', 'create_if_missing', 'comment', 'complete'];
+    public const ACTIONS = ['create', 'create_if_missing', 'comment', 'complete', 'update'];
 
     /** Actions about an existing task, which has to be found first. */
-    public const LOOKUP_ACTIONS = ['create_if_missing', 'comment', 'complete'];
+    public const LOOKUP_ACTIONS = ['create_if_missing', 'comment', 'complete', 'update'];
 
     /**
      * Sanitize a raw Gemini extraction into a whole-recording transcript plus

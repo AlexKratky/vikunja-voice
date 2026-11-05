@@ -14,6 +14,12 @@ return [
     'comment_as_task' => 'Task to add to not found, the note is a new task: :title',
     'task_completed' => 'Done: :title',
     'task_not_found' => 'Task not found: :title',
+    'task_updated' => 'Updated: :title (:changes)',
+    'task_unchanged' => 'Nothing to change: :title',
+    'change_due' => 'due :at',
+    'change_priority' => 'priority :priority',
+    'change_reminder' => 'reminder :at',
+    'time_format' => 'M j, H:i',
     'kuma_failed_jobs' => '{1} :count recording failed, see failed_jobs|[2,*] :count recordings failed, see failed_jobs',
 
     // Blade-only strings.
