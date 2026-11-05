@@ -5,7 +5,7 @@ namespace App\Services;
 class ExtractionValidator
 {
     /** What an item can do; `create` is the default and always available. */
-    public const ACTIONS = ['create', 'create_if_missing', 'comment', 'complete', 'update'];
+    public const ACTIONS = ['create', 'create_if_missing', 'comment', 'complete', 'update', 'list'];
 
     /** Actions about an existing task, which has to be found first. */
     public const LOOKUP_ACTIONS = ['create_if_missing', 'comment', 'complete', 'update'];
@@ -61,6 +61,9 @@ class ExtractionValidator
         int $defaultProjectId,
         string $fallbackTitle,
     ): array {
+        // Anything unexpected creates the task: a duplicate beats a lost note.
+        $action = in_array($raw['action'] ?? null, self::ACTIONS, true) ? $raw['action'] : 'create';
+
         $title = trim((string) ($raw['title'] ?? ''));
         if ($title === '') {
             $title = $fallbackTitle;
@@ -70,9 +73,10 @@ class ExtractionValidator
 
         $priority = min(5, max(0, (int) ($raw['priority'] ?? 0)));
 
+        // A list asked about no project covers all of them.
         $projectId = (int) ($raw['project_id'] ?? 0);
         if (! in_array($projectId, $validProjectIds, true)) {
-            $projectId = $defaultProjectId;
+            $projectId = $action === 'list' ? null : $defaultProjectId;
         }
 
         $labelIds = array_values(array_intersect(
@@ -90,8 +94,7 @@ class ExtractionValidator
             // Wire name is `transcript_segment`; `transcript` is accepted so the
             // flat old-shape fallback above carries the whole recording.
             'transcript' => trim((string) ($raw['transcript_segment'] ?? $raw['transcript'] ?? '')),
-            // Anything unexpected creates the task: a duplicate beats a lost note.
-            'action' => in_array($raw['action'] ?? null, self::ACTIONS, true) ? $raw['action'] : 'create',
+            'action' => $action,
             'search_terms' => self::searchTerms($raw['search_terms'] ?? null),
             'reminders' => array_slice(array_values(array_unique(array_filter(array_map(
                 self::dateTime(...),

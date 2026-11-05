@@ -50,12 +50,42 @@ class VikunjaClient
             $query['s'] = $search;
         }
 
+        return $this->tasks($query);
+    }
+
+    /**
+     * Open tasks due by the given time (overdue ones included), with at least
+     * the given priority, in one project; each condition only when given.
+     * Soonest due first, tasks without a due date last; one page at most.
+     */
+    public function dueTasks(?string $dueBy = null, int $minPriority = 0, ?int $projectId = null, ?string $search = null): array
+    {
+        $conditions = [
+            'done = false',
+            ...($dueBy !== null ? ["due_date <= {$dueBy}"] : []),
+            ...($minPriority > 0 ? ["priority >= {$minPriority}"] : []),
+            ...($projectId !== null ? ["project = {$projectId}"] : []),
+        ];
+        $query = ['filter' => implode(' && ', $conditions), 'sort_by' => 'due_date', 'order_by' => 'asc', 'per_page' => 50];
+
+        if ($search !== null) {
+            $query['s'] = $search;
+        }
+
+        return $this->tasks($query);
+    }
+
+    private function tasks(array $query): array
+    {
         $tasks = $this->client()->get('/tasks', $query)->throw()->json() ?? [];
 
-        return array_map(
-            fn ($t) => ['id' => (int) $t['id'], 'title' => (string) $t['title'], 'project_id' => (int) $t['project_id']],
-            $tasks,
-        );
+        // Vikunja reports "no due date" as the zero time.
+        return array_map(fn ($t) => [
+            'id' => (int) $t['id'],
+            'title' => (string) $t['title'],
+            'project_id' => (int) $t['project_id'],
+            'due_date' => str_starts_with((string) ($t['due_date'] ?? ''), '0001-') ? null : ($t['due_date'] ?? null),
+        ], $tasks);
     }
 
     public function createTask(int $projectId, array $payload): array

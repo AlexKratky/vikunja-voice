@@ -20,6 +20,8 @@ return [
     'change_priority' => 'priority :priority',
     'change_reminder' => 'reminder :at',
     'time_format' => 'M j, H:i',
+    'list_empty' => ':title: no tasks',
+    'list_more' => '… and :count more',
     'kuma_failed_jobs' => '{1} :count recording failed, see failed_jobs|[2,*] :count recordings failed, see failed_jobs',
 
     // Blade-only strings.

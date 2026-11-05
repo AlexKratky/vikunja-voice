@@ -44,7 +44,7 @@ Invalid input gets `422` with Laravel's JSON validation errors. A `202` means th
 - Accepts audio shared from other Android apps (Web Share Target), and can share or download recordings back out
 - Structured extraction: title, description, due date, reminders, priority (Vikunja 0–5 scale), project, labels
 - Several tasks from one recording: say "new task" out loud and keep dictating; a change of topic alone never splits
-- [Voice commands](#voice-commands), each with its own switch: create a task only if it doesn't exist yet, add a note to an existing task, mark one as done, move its due date or change its priority
+- [Voice commands](#voice-commands), each with its own switch: create a task only if it doesn't exist yet, add a note to an existing task, mark one as done, move its due date or change its priority; ask what you have to do today
 - Auto-assign every task to a configured user and/or auto-attach a configured label
 - Daily retention pruning of processed audio files
 - Typed notes over the same pipeline (`POST /api/notes`), e.g. from a dashboard or a script
@@ -60,6 +60,7 @@ Besides dictating new tasks, you can say a command. Every command is on by defau
 | Add a note | "add to the task … that …" / „doplň k úkolu …, že …" | The note (with its transcript) becomes a comment on that task. If the task is not found, the note is created as a new task instead, so it is never lost. | `VOICE_COMMAND_COMMENT` |
 | Mark as done | "mark … as done", "done: …" / „hotovo: …", „označ … jako hotový" | That task is marked done. If it is not found, nothing changes and the notification says so. | `VOICE_COMMAND_COMPLETE` |
 | Change | "move … to Friday", "… is urgent", "remind me about the … task tomorrow" / „posuň … na pátek", „… je urgentní", „připomeň mi úkol … zítra" | Only what you said changes on that task: the due date, the priority, or an added reminder (with reminders on). Removing a due date or the priority is not possible by voice. If the task is not found, nothing changes. | `VOICE_COMMAND_UPDATE` |
+| List | "what do I have today?", "what's overdue?", "what urgent tasks do I have in RETech?" / „co mám na dnešek?", „co mám po termínu?" | The notification lists your matching open tasks, soonest due first (up to 15, the rest counted), straight from Vikunja — nothing is sent to Gemini a second time and nothing is created. A period ("this week") includes overdue tasks; a priority, project, or keywords narrow it down. | `VOICE_COMMAND_LIST` |
 | Reminders | "remind me tomorrow at 9 …" / „připomeň mi zítra v 9 …" | The new task gets a Vikunja reminder at that time (with no time of day, 9:00); "an hour before" counts from the due date. Asking for a reminder sets no deadline by itself. | `VOICE_COMMAND_REMINDERS` |
 
 **Finding the existing task.** A command about an existing task is compared with your open tasks: the 50 newest plus those containing any of the keywords the model picked from the dictation, each searched on its own in titles and descriptions (Vikunja's search takes a phrase as one substring). A second, text-only Gemini request picks the task — only ever one of those, and none when unsure. The decision is stored before anything is done, so a retry never asks again. Recordings without such a command never read your task list.
@@ -170,13 +171,13 @@ Scheduler (cron):
 ## Security & privacy
 
 - **Your audio and typed notes are sent to Google Gemini** for transcription and extraction. If that is not acceptable to you, this tool is not for you.
-- A [voice command](#voice-commands) about an existing task also sends Gemini the titles and project names of the open tasks it is compared with (the 50 newest plus keyword matches). Recordings without such a command never read your task list.
+- A [voice command](#voice-commands) about an existing task also sends Gemini the titles and project names of the open tasks it is compared with (the 50 newest plus keyword matches). The list command reads your tasks but sends them only to ntfy. Recordings without a command never read your task list.
 - Uploads are protected by a single bearer token compared with `hash_equals`; the endpoint fails closed when no token is configured. There are no accounts and no server-side way to read recordings back — the API only ever answers `202`/`4xx`.
 - Recording history lives only in your browser (IndexedDB), from the moment recording stops (marked as not sent until you send it); the upload token is kept in `localStorage`.
 - **Retention:** the daily `recordings:prune` command deletes audio files of *successfully processed* recordings after `RETENTION_DAYS`. Transcripts and typed notes remain in the SQLite database and in the created Vikunja tasks. Audio of *failed* recordings is kept until you retry or delete it manually — by design, so nothing is lost.
 
 > [!WARNING]
-> **ntfy privacy.** On the public `ntfy.sh` server, the topic name is the only thing protecting your notifications — anyone who knows or guesses it can subscribe (and publish). Notifications include the extracted task title, and failure notifications can include error details. If you use ntfy, prefer a self-hosted instance or an [access-protected topic](https://docs.ntfy.sh/publish/#access-tokens), or at minimum use a long random topic name (`openssl rand -hex 16`) and consider `NTFY_NOTIFY_SUCCESS=false`. Leaving `NTFY_TOPIC` empty disables notifications entirely.
+> **ntfy privacy.** On the public `ntfy.sh` server, the topic name is the only thing protecting your notifications — anyone who knows or guesses it can subscribe (and publish). Notifications include the extracted task title, the list command sends titles of your open tasks, and failure notifications can include error details. If you use ntfy, prefer a self-hosted instance or an [access-protected topic](https://docs.ntfy.sh/publish/#access-tokens), or at minimum use a long random topic name (`openssl rand -hex 16`) and consider `NTFY_NOTIFY_SUCCESS=false`. Leaving `NTFY_TOPIC` empty disables notifications entirely.
 
 ## When something fails
 

@@ -101,14 +101,15 @@ it('assigns a user via PUT', function () {
 it('lists the newest open tasks across projects', function () {
     Http::fake([
         'vikunja.test/api/v1/tasks*' => Http::response([
-            ['id' => 147, 'title' => 'Koupit olej', 'project_id' => 1, 'done' => false, 'description' => '<p>x</p>'],
-            ['id' => 145, 'title' => 'Vypnout NASku', 'project_id' => 2, 'done' => false, 'description' => ''],
+            ['id' => 147, 'title' => 'Koupit olej', 'project_id' => 1, 'done' => false, 'due_date' => '2026-11-07T22:59:00Z'],
+            ['id' => 145, 'title' => 'Vypnout NASku', 'project_id' => 2, 'done' => false, 'due_date' => '0001-01-01T00:00:00Z'],
         ]),
     ]);
 
+    // Vikunja's zero time is "no due date".
     expect((new VikunjaClient)->openTasks())->toBe([
-        ['id' => 147, 'title' => 'Koupit olej', 'project_id' => 1],
-        ['id' => 145, 'title' => 'Vypnout NASku', 'project_id' => 2],
+        ['id' => 147, 'title' => 'Koupit olej', 'project_id' => 1, 'due_date' => '2026-11-07T22:59:00Z'],
+        ['id' => 145, 'title' => 'Vypnout NASku', 'project_id' => 2, 'due_date' => null],
     ]);
 
     Http::assertSent(fn ($r) => $r->method() === 'GET'
@@ -148,6 +149,24 @@ it('updates a task by sending it back whole with the change applied', function (
         ['GET', []],
         ['POST', [...$task, 'done' => true]],
     ]);
+});
+
+it('lists open tasks due by a time, soonest first, with only the conditions given', function () {
+    Http::fake(['vikunja.test/api/v1/tasks*' => Http::response([])]);
+
+    (new VikunjaClient)->dueTasks('2026-11-09T23:59:00+01:00', 4, 5, 'olej');
+    (new VikunjaClient)->dueTasks();
+
+    [$all, $none] = Http::recorded()->map(fn ($pair) => $pair[0]->data())->all();
+    expect($all)->toBe([
+        'filter' => 'done = false && due_date <= 2026-11-09T23:59:00+01:00 && priority >= 4 && project = 5',
+        'sort_by' => 'due_date',
+        'order_by' => 'asc',
+        'per_page' => 50,
+        's' => 'olej',
+    ])
+        ->and($none['filter'])->toBe('done = false')
+        ->and($none)->not->toHaveKey('s');
 });
 
 it('throws on error responses', function () {

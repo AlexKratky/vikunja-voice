@@ -23,6 +23,9 @@ class ProcessRecording implements ShouldQueue
 
     public int $timeout = 300;
 
+    /** Tasks listed in one notification; the rest are only counted. */
+    private const LIST_LINES = 15;
+
     public function __construct(public string $recordingId) {}
 
     public function backoff(): array
@@ -98,6 +101,7 @@ class ProcessRecording implements ShouldQueue
                 'comment' => $this->comment($vikunja, $task, $description),
                 'complete' => $this->complete($vikunja, $task),
                 'update' => $this->updateExisting($vikunja, $task),
+                'list' => [null, $this->taskList($vikunja, $task)],
                 default => $this->create($vikunja, $task, $description),
             };
 
@@ -308,6 +312,38 @@ class ProcessRecording implements ShouldQueue
             'title' => $existing['title'],
             'changes' => implode(', ', $described),
         ])];
+    }
+
+    /**
+     * The answer comes straight from Vikunja, so it can only name tasks that exist.
+     */
+    private function taskList(VikunjaClient $vikunja, array $task): string
+    {
+        $find = fn (?string $search) => $vikunja->dueTasks($task['due_date'], $task['priority'], $task['project_id'], $search);
+        $terms = $task['search_terms'] ?? [];
+        $found = $terms === [] ? $find(null) : array_merge(...array_map($find, $terms));
+        $found = array_values(array_column($found, null, 'id'));
+
+        if ($found === []) {
+            return '📋 '.$this->say('list_empty', ['title' => $task['title']]);
+        }
+
+        usort($found, fn (array $a, array $b) => [$a['due_date'] === null, strtotime((string) $a['due_date']), $a['id']]
+            <=> [$b['due_date'] === null, strtotime((string) $b['due_date']), $b['id']]);
+
+        $lines = array_map(
+            fn (array $t) => '• '.$t['title'].($t['due_date'] !== null ? ' — '.$this->formatTime($t['due_date']) : ''),
+            array_slice($found, 0, self::LIST_LINES),
+        );
+
+        if (count($found) > self::LIST_LINES) {
+            $lines[] = $this->say('list_more', ['count' => count($found) - self::LIST_LINES]);
+        }
+
+        // A full page means Vikunja may hold more than it returned.
+        $count = count($found) >= 50 ? count($found).'+' : count($found);
+
+        return "📋 {$task['title']} ({$count})\n".implode("\n", $lines);
     }
 
     private function formatTime(string $at): string

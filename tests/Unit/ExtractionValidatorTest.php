@@ -182,3 +182,10 @@ it('normalizes reminders to RFC3339 and drops unparseable or repeated ones', fun
         ->toBe(['2026-11-06T09:00:00+01:00', '2026-11-07T08:00:00+00:00']);
     expect(validate(['reminders' => '2026-11-06T09:00:00+01:00'])['reminders'])->toBe([]);
 });
+
+it('lets a list without a known project cover all projects', function () {
+    expect(validate(['action' => 'list', 'project_id' => 999])['project_id'])->toBeNull();
+    expect(validate(['action' => 'list', 'project_id' => null])['project_id'])->toBeNull();
+    expect(validate(['action' => 'list', 'project_id' => 5])['project_id'])->toBe(5);
+    expect(validate(['action' => 'create', 'project_id' => 999])['project_id'])->toBe(7);
+});

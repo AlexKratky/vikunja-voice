@@ -20,6 +20,8 @@ return [
     'change_priority' => 'priorita :priority',
     'change_reminder' => 'připomínka :at',
     'time_format' => 'j. n. H:i',
+    'list_empty' => ':title: žádné úkoly',
+    'list_more' => '… a dalších :count',
     'kuma_failed_jobs' => '{1} :count nahrávka selhala, viz failed_jobs|[2,4] :count nahrávky selhaly, viz failed_jobs|[5,*] :count nahrávek selhalo, viz failed_jobs',
 
     'ui' => [

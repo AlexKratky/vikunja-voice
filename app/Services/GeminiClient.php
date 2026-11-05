@@ -295,6 +295,7 @@ PROMPT;
                     .($reminders ? ', or add a reminder to it ("remind me about the … task tomorrow")' : '')
                     .'. `title`: the existing task as the speaker named it; `due_date` and `priority` hold only the new values, null for what stays as it is.'
                     .($reminders ? ' `reminders` are added to those the task already has.' : ''),
+                'list' => 'the speaker asks which tasks they have ("what do I have today", "what is overdue", "what is due this week in RETech", "what urgent tasks do I have", or an obvious variant). `title`: a short heading for the answer (e.g. "Due today"); `due_date`: the end of the period asked about (today → today 23:59, this week → Sunday 23:59, overdue → now), null when no period is asked about; `priority`: the lowest priority asked about (urgent → 4), else null; `project_id`: the project asked about, else null; `search_terms`: words the tasks have to contain, cut down to their stems, else an empty array; `description` null.',
             ],
             'outro' => 'The command phrase itself belongs to no field, just like the "new task" cue. A different command starts a new item even without the "new task" cue, and a command is an item even when no task gets created. A task that merely mentions another task is not a command.',
             'search_terms' => '- `search_terms`: with :actions — 2 to 5 keywords to find the existing task by: the distinctive words of the task, each a single word cut down to its stem so other forms match too, plus an obvious synonym (e.g. "invoices" → "invoice"; "the dentist\'s" → "dentist"). Each term is searched separately as a substring of task titles and descriptions. With "create" an empty array.',
@@ -303,6 +304,7 @@ PROMPT;
                 'comment' => '- "Add to the deploy script task that it only fails on staging" → action "comment", title "Deploy script", description "Only fails on staging", search_terms ["deploy", "script"].',
                 'complete' => '- "Mark calling the doctor as done" → action "complete", title "Call the doctor", search_terms ["doctor", "call"].',
                 'update' => '- "Move the car insurance to Friday, it\'s urgent" → action "update", title "Car insurance", due_date = nearest Friday 23:59, priority = 4, search_terms ["insurance", "car"].',
+                'list' => '- "What do I have this week?" → action "list", title "This week", due_date = this Sunday 23:59, priority = null, project_id = null, search_terms [].',
             ],
         ];
     }
@@ -324,6 +326,7 @@ PROMPT;
                     .($reminders ? ', nebo k němu přidej připomenutí („připomeň mi úkol … zítra v 9")' : '')
                     .'. `title`: existující úkol tak, jak ho mluvčí pojmenoval; `due_date` a `priority` jen nové hodnoty, null u toho, co se nemění.'
                     .($reminders ? ' `reminders` se přidají k těm, které úkol už má.' : ''),
+                'list' => 'mluvčí se ptá, jaké má úkoly („co mám na dnešek", „co mám po termínu", „co mě čeká tento týden v RETechu", „jaké mám urgentní úkoly", nebo zjevná varianta). `title`: krátký nadpis odpovědi (např. „Na dnešek"); `due_date`: konec období, na které se ptá (dnes → dnes 23:59, tento týden → neděle 23:59, po termínu → teď), null když se na období neptá; `priority`: nejnižší priorita, na kterou se ptá (urgentní → 4), jinak null; `project_id`: projekt, na který se ptá, jinak null; `search_terms`: slova, která úkoly musí obsahovat, zkrácená na kořen, jinak prázdné pole; `description` null.',
             ],
             'outro' => 'Samotná fráze příkazu nepatří do žádného pole, stejně jako fráze o novém úkolu. Jiný příkaz začíná novou položku i bez fráze o novém úkolu a příkaz je položka, i když se žádný úkol nezakládá. Úkol, který jen zmiňuje jiný úkol, není příkaz.',
             'search_terms' => '- `search_terms`: u :actions — 2 až 5 klíčových slov, podle kterých se existující úkol najde: výstižná slova úkolu, každé jako jedno slovo zkrácené na kořen bez koncovky, aby se našly i jiné tvary; když se kořen v jiných tvarech mění, uveď oba (např. „stůl" → „stůl" a „stol"; „fakturu" → „faktur"; „doktorovi" → „doktor"), případně zjevné synonymum („doktor" → „lékař"). Každé slovo se hledá samostatně jako podřetězec v názvu a popisu úkolů. U „create" prázdné pole.',
@@ -332,6 +335,7 @@ PROMPT;
                 'comment' => '- „Doplň k úkolu s olejem, že ho koupím v Hornbachu" → action „comment", title „Olej", description „Koupím ho v Hornbachu", search_terms [„olej"].',
                 'complete' => '- „Odškrtni zavolat doktorovi, už je to hotové" → action „complete", title „Zavolat doktorovi", search_terms [„doktor", „lékař", „zavol"].',
                 'update' => '- „Posuň opravu deploy skriptu na pátek, je to urgentní" → action „update", title „Oprava deploy skriptu", due_date = nejbližší pátek 23:59, priority = 4, search_terms [„deploy", „skript"].',
+                'list' => '- „Co mám tento týden?" → action „list", title „Tento týden", due_date = tuto neděli 23:59, priority = null, project_id = null, search_terms [].',
             ],
         ];
     }

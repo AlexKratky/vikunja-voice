@@ -1177,3 +1177,94 @@ it('changes nothing when the task to update is not found', function () {
         ->and(createTaskRequests())->toHaveCount(0);
     Http::assertSent(fn ($r) => str_contains($r->url(), 'ntfy.test/topic') && $r->body() === '❓ Task not found: Lak');
 });
+
+function listTask(array $overrides = []): array
+{
+    return geminiTask(array_merge([
+        'action' => 'list',
+        'title' => 'This week',
+        'description' => null,
+        'due_date' => '2026-11-08T23:59:00+01:00',
+        'priority' => null,
+        'project_id' => null,
+        'label_ids' => [],
+        'search_terms' => [],
+    ], $overrides));
+}
+
+function dueTask(int $id, string $title, ?string $due): array
+{
+    return ['id' => $id, 'title' => $title, 'project_id' => 1, 'done' => false, 'due_date' => $due ?? '0001-01-01T00:00:00Z'];
+}
+
+it('answers a question about tasks with the matching ones from Vikunja', function () {
+    config()->set('voice.ntfy.notify_success', false);
+    fakeApis(['transcript' => 'What do I have this week?', 'tasks' => [listTask()]], [
+        'vikunja.test/api/v1/tasks?*' => Http::response([
+            dueTask(131, 'Vypnout NASku', '2026-11-03T22:59:00Z'),
+            dueTask(147, 'Koupit olej', '2026-11-07T22:59:00Z'),
+        ]),
+    ]);
+    $recording = makeRecording();
+
+    runJob($recording);
+
+    $recording->refresh();
+    expect($recording->status)->toBe('done')
+        ->and($recording->vikunja_task_ids)->toBe([null])
+        ->and(createTaskRequests())->toHaveCount(0)
+        // Nothing to look up: the model is asked once.
+        ->and(geminiRequests())->toHaveCount(1);
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), '/api/v1/tasks?')
+        && $r->data()['filter'] === 'done = false && due_date <= 2026-11-08T23:59:00+01:00');
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'ntfy.test/topic')
+        && $r->body() === "📋 This week (2)\n• Vypnout NASku — Nov 3, 23:59\n• Koupit olej — Nov 7, 23:59"
+        && $r->header('X-Click') === ['https://vikunja.test']);
+});
+
+it('merges a search per term, soonest due first, and counts what does not fit', function () {
+    config()->set('voice.locale', 'cs');
+    $olej = [dueTask(147, 'Koupit olej', '2026-11-07T22:59:00Z'), dueTask(5, 'Olej bez termínu', null)];
+    $stul = [dueTask(147, 'Koupit olej', '2026-11-07T22:59:00Z'), dueTask(138, 'Ošetřit stůl', '2026-11-01T22:59:00Z')];
+    $many = array_map(fn ($i) => dueTask(200 + $i, "Úkol {$i}", '2026-12-01T22:59:00Z'), range(1, 14));
+    fakeApis(['transcript' => 'x', 'tasks' => [listTask([
+        'title' => 'Olej a stůl',
+        'due_date' => null,
+        'priority' => 4,
+        'project_id' => 5,
+        'search_terms' => ['olej', 'stůl', 'úkol'],
+    ])]], [
+        'vikunja.test/api/v1/tasks?*' => fn ($request) => Http::response(match ($request->data()['s']) {
+            'olej' => $olej,
+            'stůl' => $stul,
+            'úkol' => $many,
+        }),
+    ]);
+
+    runJob(makeRecording());
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), '/api/v1/tasks?')
+        && $r->data()['filter'] === 'done = false && priority >= 4 && project = 5');
+
+    $body = Http::recorded(fn ($r) => str_contains($r->url(), 'ntfy.test/topic'))->first()[0]->body();
+    $lines = explode("\n", $body);
+    expect($lines[0])->toBe('📋 Olej a stůl (17)')
+        ->and($lines[1])->toBe('• Ošetřit stůl — 1. 11. 23:59')
+        ->and($lines[2])->toBe('• Koupit olej — 7. 11. 23:59')
+        ->and($lines[3])->toBe('• Úkol 1 — 1. 12. 23:59')
+        ->and($lines)->toHaveCount(17)
+        ->and($lines[16])->toBe('… a dalších 2');
+    expect($body)->not->toContain('Olej bez termínu');
+});
+
+it('says when no task matches the question', function () {
+    fakeApis(['transcript' => 'x', 'tasks' => [listTask(['title' => 'Overdue'])]], [
+        'vikunja.test/api/v1/tasks?*' => Http::response([]),
+    ]);
+
+    runJob(makeRecording());
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'ntfy.test/topic') && $r->body() === '📋 Overdue: no tasks');
+});

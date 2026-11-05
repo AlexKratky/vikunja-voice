@@ -32,6 +32,7 @@ return [
         'comment' => (bool) env('VOICE_COMMAND_COMMENT', true),
         'complete' => (bool) env('VOICE_COMMAND_COMPLETE', true),
         'update' => (bool) env('VOICE_COMMAND_UPDATE', true),
+        'list' => (bool) env('VOICE_COMMAND_LIST', true),
         'reminders' => (bool) env('VOICE_COMMAND_REMINDERS', true),
     ],
 
