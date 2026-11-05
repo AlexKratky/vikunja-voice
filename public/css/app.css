@@ -282,6 +282,52 @@ button { font: inherit; }
     height: 3.5rem;
 }
 
+/* ---------- microphone picker ---------- */
+
+.mic-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    max-width: 100%;
+    min-height: 2.1rem; /* picker and live label swap without a jump */
+    font-size: 0.85rem;
+    color: var(--text-3);
+    margin-top: -0.35rem;
+}
+
+.mic-row svg {
+    flex: none;
+    width: 0.95rem;
+    height: 0.95rem;
+}
+
+#mic-select {
+    min-width: 0;
+    max-width: 18rem;
+    font: inherit;
+    color: var(--text-2);
+    background: var(--surface-2);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-control);
+    padding: 0.4rem 0.6rem;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+}
+
+@media (hover: hover) {
+    #mic-select:hover { border-color: rgba(255, 255, 255, 0.22); }
+}
+
+#mic-live {
+    min-width: 0;
+    color: var(--text-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .btn-import {
     display: inline-flex;
     align-items: center;
@@ -588,6 +634,8 @@ button { font: inherit; }
 }
 
 .icon-btn:active { transform: scale(0.94); }
+
+.icon-btn:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
 
 @media (hover: hover) {
     .icon-btn:hover { background: #262c38; border-color: rgba(255, 255, 255, 0.22); }

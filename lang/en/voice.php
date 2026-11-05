@@ -19,6 +19,7 @@ return [
         'history' => 'History',
         'history_note' => 'only in this browser',
         'delete_all' => 'Delete all',
+        'mic' => 'Microphone',
     ],
 
     // Passed to public/js/app.js via window.VV; keys shared with the
@@ -27,6 +28,7 @@ return [
         'ready' => 'Ready',
         'recording' => 'Recording… (tap to stop)',
         'review' => 'Check and send',
+        'review_continue' => 'Send, or tap the mic to add more',
         'sending' => 'Sending…',
         'sent' => 'Sent ✓ (will be processed in the background)',
         'send_error' => 'Upload error',
@@ -51,6 +53,7 @@ return [
         'seek' => 'Position in recording',
         'record' => 'Record',
         'stop_recording' => 'Stop recording',
+        'continue_recording' => 'Continue recording',
         'share_recording' => 'Share recording',
         'download_recording' => 'Download recording',
         'share_target_error' => 'Could not receive the shared file. Open the app and share it again.',

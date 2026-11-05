@@ -61,6 +61,27 @@ it('renders share and download buttons in the preview', function () {
     $this->get('/')->assertSee('Stáhnout nahrávku');
 });
 
+it('renders the microphone picker hidden until inputs are known', function () {
+    $this->get('/')
+        ->assertSee('<div id="mic-row" class="mic-row" hidden>', escape: false)
+        ->assertSee('<select id="mic-select" aria-label="Microphone">', escape: false);
+
+    config()->set('voice.locale', 'cs');
+
+    $this->get('/')->assertSee('aria-label="Mikrofon"', escape: false);
+});
+
+it('exposes the continue-recording strings to the recorder script', function () {
+    $this->get('/')
+        ->assertSee('Continue recording')
+        ->assertSee('tap the mic to add more');
+
+    config()->set('voice.locale', 'cs');
+
+    // @json escapes non-ASCII, so the Czech string appears \u-escaped.
+    $this->get('/')->assertSee('Pokra\u010dovat v nahr\u00e1v\u00e1n\u00ed', escape: false);
+});
+
 it('exposes the unsent badge string for recordings not yet sent', function () {
     $this->get('/')
         ->assertSee('not sent');

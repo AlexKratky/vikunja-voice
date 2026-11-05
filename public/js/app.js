@@ -13,7 +13,8 @@ function setStatus(state, text) {
     const status = $('status');
     status.textContent = text;
     status.dataset.state = state;
-    $('record').setAttribute('aria-label', state === 'recording' ? STR.stop_recording : STR.record);
+    $('record').setAttribute('aria-label', state === 'recording' ? STR.stop_recording
+        : current && current.take ? STR.continue_recording : STR.record);
 }
 
 // ---------- token ----------
@@ -101,8 +102,8 @@ async function dbClear() {
 }
 
 // ---------- recording ----------
-let mediaRecorder = null;
-let current = null; // { blob, mime, createdAt, id, persist }
+let current = null;   // preview entry: { blob, mime, createdAt, id, persist, take }
+let recording = null; // the take whose mic is live right now
 
 function pickMime() {
     for (const m of ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']) {
@@ -126,7 +127,7 @@ const WAVE_BAR_W = 3;      // css px
 const WAVE_BAR_GAP = 2;    // css px
 const WAVE_SAMPLE_MS = 50; // one new bar per 50ms
 
-const recLive = { raf: 0, audioCtx: null, analyser: null, startedAt: 0, lastBarAt: 0, bars: [], waveColor: '#e5484d' };
+const recLive = { raf: 0, analyser: null, startedAt: 0, lastBarAt: 0, bars: [], waveColor: '#e5484d' };
 
 function fmtRecTimer(ms) {
     const total = Math.floor(ms / 1000);
@@ -136,32 +137,25 @@ function fmtRecTimer(ms) {
     return base + '.' + Math.floor((ms % 1000) / 100);
 }
 
-function startRecLive(stream) {
-    recLive.startedAt = performance.now();
+// elapsedMs is what the take already holds, so a continued take's timer
+// picks up where it stopped. analyser may be null: the waveform is
+// progressive enhancement, the timer works without it.
+function startRecLive(analyser, elapsedMs) {
+    recLive.startedAt = performance.now() - elapsedMs;
     recLive.lastBarAt = 0;
     recLive.bars = [];
-    $('rec-timer').textContent = REDUCED_MOTION ? '0:00' : '0:00.0';
+    $('rec-timer').textContent = fmtRecTimer(elapsedMs);
     $('rec-live').hidden = false;
 
     const canvas = $('rec-wave');
-    canvas.hidden = REDUCED_MOTION;
-    if (!REDUCED_MOTION) {
-        try {
-            const AC = window.AudioContext || window.webkitAudioContext;
-            recLive.audioCtx = new AC();
-            recLive.analyser = recLive.audioCtx.createAnalyser();
-            recLive.analyser.fftSize = 256;
-            recLive.audioCtx.createMediaStreamSource(stream).connect(recLive.analyser);
-            const dpr = window.devicePixelRatio || 1;
-            const rect = canvas.getBoundingClientRect();
-            canvas.width = Math.round(rect.width * dpr);
-            canvas.height = Math.round(rect.height * dpr);
-            recLive.waveColor = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#e5484d';
-        } catch (_) {
-            // Waveform is progressive enhancement; the timer works without it.
-            recLive.analyser = null;
-            canvas.hidden = true;
-        }
+    recLive.analyser = REDUCED_MOTION ? null : analyser;
+    canvas.hidden = !recLive.analyser;
+    if (recLive.analyser) {
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = Math.round(rect.width * dpr);
+        canvas.height = Math.round(rect.height * dpr);
+        recLive.waveColor = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#e5484d';
     }
 
     const tick = () => {
@@ -175,10 +169,6 @@ function startRecLive(stream) {
 function stopRecLive() {
     cancelAnimationFrame(recLive.raf);
     recLive.raf = 0;
-    if (recLive.audioCtx) {
-        recLive.audioCtx.close();
-        recLive.audioCtx = null;
-    }
     recLive.analyser = null;
     recLive.bars = [];
     $('rec-live').hidden = true;
@@ -222,6 +212,48 @@ function drawRecWave() {
     }
 }
 
+// ---------- microphone picker ----------
+// Shown only when there is more than one input to choose from. Browsers
+// blank device labels until mic permission is granted, so on a first visit
+// the picker appears after the first recording. Chrome adds virtual
+// 'default' / 'communications' entries: 'default' is kept as an option
+// (its label names the OS default), neither counts as an extra input.
+let micsShown = false;
+
+async function refreshMics() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+    let inputs;
+    try {
+        inputs = (await navigator.mediaDevices.enumerateDevices())
+            .filter((d) => d.kind === 'audioinput' && d.deviceId && d.deviceId !== 'communications');
+    } catch (_) {
+        return;
+    }
+    const physical = inputs.filter((d) => d.deviceId !== 'default');
+    micsShown = physical.length > 1 && inputs.every((d) => d.label);
+
+    const select = $('mic-select');
+    select.innerHTML = '';
+    if (micsShown) {
+        for (const d of inputs) select.add(new Option(d.label, d.deviceId));
+        const saved = localStorage.getItem('vv_mic');
+        if (inputs.some((d) => d.deviceId === saved)) select.value = saved;
+    }
+    $('mic-row').hidden = !micsShown;
+}
+
+// While recording, the picker gives way to the label of the track actually
+// being captured, so it's clear which mic is live. null restores the picker.
+function setMicLive(track) {
+    $('mic-select').hidden = !!track;
+    $('mic-live').hidden = !track;
+    $('mic-live').textContent = track ? track.label : '';
+}
+
+$('mic-select').addEventListener('change', () => {
+    localStorage.setItem('vv_mic', $('mic-select').value);
+});
+
 // MIME types the backend RecordingController accepts. Keep in sync.
 const ACCEPTED_MIMES = {
     'audio/webm': true,
@@ -256,73 +288,275 @@ function mimeFromFile(file) {
     return EXT_TO_MIME[ext] || '';
 }
 
-function showPreview(blob, mime) {
-    const createdAt = Date.now();
-    const entry = { blob, mime, createdAt, id: null, persist: null };
-    // Persist as 'unsent' right away so the recording survives the app being
-    // closed or killed before Send is tapped — it must never just disappear.
-    // entry.persist lets the send/discard handlers wait for the row to exist
-    // (a fast tap would otherwise race dbAdd). dbAdd gets a plain literal, not
-    // `entry`: a Promise isn't structured-cloneable.
-    entry.persist = dbAdd({ blob, mime, createdAt, status: 'unsent' })
-        .then((id) => { entry.id = id; renderHistory(); return id; })
-        .catch(() => null); // private mode etc.: fall back to in-memory only, as before
-    current = entry;
+// take: the paused take this blob came from, when it can still be continued.
+function showPreview(blob, mime, take = null) {
+    if (take && current && current.take === take) {
+        // The same take stopped again: its row grows instead of a new one appearing.
+        current.blob = blob;
+        current.persist = current.persist.then((id) => (id === null ? null
+            : dbUpdate(id, { blob }).then(() => { renderHistory(); return id; }, () => id)));
+    } else {
+        clearCurrent(); // e.g. an import replacing a take paused in review
+        const createdAt = Date.now();
+        const entry = { blob, mime, createdAt, id: null, persist: null, take };
+        // Persist as 'unsent' right away so the recording survives the app being
+        // closed or killed before Send is tapped — it must never just disappear.
+        // entry.persist lets the send/discard handlers wait for the row to exist
+        // (a fast tap would otherwise race dbAdd). dbAdd gets a plain literal, not
+        // `entry`: a Promise isn't structured-cloneable.
+        entry.persist = dbAdd({ blob, mime, createdAt, status: 'unsent' })
+            .then((id) => { entry.id = id; renderHistory(); return id; })
+            .catch(() => null); // private mode etc.: fall back to in-memory only, as before
+        current = entry;
+    }
     const audio = $('preview-audio');
     const prev = audio.src;
     audio.src = URL.createObjectURL(blob);
     if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
     $('preview').hidden = false;
-    setStatus('review', STR.review);
+    setStatus('review', take ? STR.review_continue : STR.review);
 }
 
+// Drops the preview entry. A take paused behind it can't be continued any
+// more, so it is closed; its history row stays.
+function clearCurrent() {
+    if (current && current.take) closeTake(current.take);
+    current = null;
+}
+
+// ---------- takes: stop, review, continue ----------
+// A take is one recording that can be stopped for review and then continued
+// into the same file. MediaRecorder records a Web Audio destination rather
+// than the mic stream, so the mic is released while the take waits in review
+// (no "mic in use" indicator, no Bluetooth headset stuck in call mode during
+// playback) and re-attached, possibly a different one, on continue. Where
+// Web Audio doesn't run or the browser can't record WebM, the take records
+// the mic directly and stopping ends it, as before.
+const withTimeout = (promise, ms) => Promise.race([promise, new Promise((r) => setTimeout(r, ms))]);
+
+function newTake() {
+    const take = {
+        mime: pickMime(), ctx: null, analyser: null, dest: null, source: null, mic: null,
+        recorder: null, chunks: [], stopped: null, resumable: false, elapsed: 0, startedAt: 0,
+    };
+    try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        take.ctx = new AC(); // created inside the tap, so autoplay rules let it run
+    } catch (_) {
+        take.ctx = null;
+    }
+    return take;
+}
+
+// Routes take.mic into the take's graph: the waveform, and the recorder
+// when the take is resumable.
+function connectMic(take) {
+    take.source = take.ctx.createMediaStreamSource(take.mic);
+    take.source.connect(take.analyser);
+    if (take.dest) take.source.connect(take.dest);
+}
+
+function releaseMic(take) {
+    if (take.source) take.source.disconnect();
+    take.source = null;
+    if (take.mic) take.mic.getTracks().forEach((t) => t.stop());
+    take.mic = null;
+}
+
+// First segment: picks Web Audio or direct recording, then starts.
+async function startTake(take, stream) {
+    take.mic = stream;
+    const ctx = take.ctx;
+    try {
+        if (ctx && ctx.state !== 'running') await withTimeout(ctx.resume(), 500);
+        if (ctx && ctx.state === 'running') {
+            take.analyser = ctx.createAnalyser();
+            take.analyser.fftSize = 256;
+            if (take.mime.includes('webm')) {
+                take.dest = ctx.createMediaStreamDestination();
+                take.dest.channelCount = 1;
+            }
+            connectMic(take);
+        }
+    } catch (_) {
+        // e.g. a browser refusing to mix a mic whose sample rate differs from
+        // the context's: record the mic directly, without waveform or continue.
+        if (take.source) take.source.disconnect();
+        take.analyser = take.dest = take.source = null;
+    }
+    take.resumable = !!take.dest;
+    if (take.resumable) {
+        // Web Audio stalling mid-take (e.g. a phone call on iOS) would record
+        // silence: stop instead, so what's there can be reviewed and continued.
+        ctx.addEventListener('statechange', () => {
+            if (recording === take && ctx.state !== 'running') stopTake(take);
+        });
+    }
+    take.recorder = new MediaRecorder(take.resumable ? take.dest.stream : stream, take.mime ? { mimeType: take.mime } : undefined);
+    take.recorder.ondataavailable = (e) => take.chunks.push(e.data);
+    take.stopped = new Promise((resolve) => take.recorder.addEventListener('stop', resolve, { once: true }));
+    // The recorder stopping on its own (mic gone in direct mode, an encoder
+    // error) ends the take like a tap on stop would.
+    take.stopped.then(() => { if (recording === take) stopTake(take); });
+    take.recorder.start();
+}
+
+// Next segment of a take paused in review, on whatever mic is picked now.
+async function continueTake(take, stream) {
+    take.mic = stream;
+    await withTimeout(take.ctx.resume(), 500);
+    if (take.ctx.state !== 'running') throw new Error('AudioContext ' + take.ctx.state);
+    connectMic(take);
+    take.recorder.resume();
+}
+
+function captureStarted(take) {
+    recording = take;
+    take.startedAt = performance.now();
+    const track = take.mic.getAudioTracks()[0];
+    // Mic unplugged or revoked mid-take: stop as if tapped, so what was
+    // recorded lands in review (and, with Web Audio, can be continued).
+    if (track) track.addEventListener('ended', () => { if (recording === take) stopTake(take); });
+    startRecLive(take.analyser, take.elapsed);
+    setMicLive(track);
+    $('record').classList.add('recording');
+    $('preview').hidden = true;
+    $('import').disabled = true;
+    setStatus('recording', STR.recording);
+    // A continued take already has a history row; lock its actions.
+    if (current && current.take === take) renderHistory();
+}
+
+// Tap on stop. A resumable take is paused and flushed (everything recorded
+// so far is then in take.chunks as one valid file) and its mic released;
+// any other take is stopped for good.
+async function stopTake(take) {
+    // Disable immediately so a rapid second tap can't continue or restart
+    // the take while it is still flushing.
+    $('record').disabled = true;
+    recording = null;
+    take.elapsed += performance.now() - take.startedAt;
+    stopRecLive();
+    setMicLive(null);
+    if (take.resumable && take.recorder.state === 'recording') {
+        await new Promise((resolve) => {
+            take.recorder.addEventListener('dataavailable', resolve, { once: true });
+            take.recorder.pause();
+            take.recorder.requestData();
+        });
+        releaseMic(take);
+        take.ctx.suspend().catch(() => {}); // closed meanwhile, e.g. history cleared
+    } else {
+        take.resumable = false;
+        if (take.recorder.state !== 'inactive') take.recorder.stop();
+        await take.stopped;
+        closeTake(take);
+    }
+    const type = (take.recorder.mimeType || 'audio/webm').split(';')[0];
+    let blob = new Blob(take.chunks, { type });
+    if (take.resumable) blob = await dropWebmDuration(blob);
+    showPreview(blob, type, take.resumable ? take : null);
+    $('record').classList.remove('recording');
+    $('record').disabled = false;
+    $('import').disabled = false;
+}
+
+// Chrome writes a placeholder Duration (1 ms) into the WebM header and only
+// corrects it when the whole file comes out at once on stop. A paused take
+// is flushed mid-recording, so the placeholder stays and players (and
+// possibly the transcription) would take the file for 1 ms long. Turning
+// the element into an EBML Void of the same size leaves the duration
+// unknown, as in any live WebM, so it is read from the audio itself.
+// Anything that doesn't parse as expected is returned untouched.
+async function dropWebmDuration(blob) {
+    const b = new Uint8Array(await blob.slice(0, 1024).arrayBuffer());
+    // EBML variable-length int at i; IDs keep their length marker bits.
+    const vint = (i, isId) => {
+        let len = 1;
+        while (len <= 8 && !(b[i] & (0x100 >> len))) len++;
+        if (len > 8 || i + len > b.length) return null;
+        let v = isId ? b[i] : b[i] & ((0x100 >> len) - 1);
+        for (let k = 1; k < len; k++) v = v * 256 + b[i + k];
+        return { v, len };
+    };
+    // First element with this ID among the siblings in [start, end).
+    const find = (start, end, id) => {
+        for (let i = start; i < end;) {
+            const elId = vint(i, true);
+            const size = elId && vint(i + elId.len, false);
+            if (!size) return null;
+            const body = i + elId.len + size.len;
+            if (elId.v === id) return { at: i, body, end: body + size.v };
+            i = body + size.v;
+        }
+        return null;
+    };
+    const segment = find(0, b.length, 0x18538067);
+    const info = segment && find(segment.body, b.length, 0x1549a966);
+    const duration = info && find(info.body, Math.min(info.end, b.length), 0x4489);
+    if (!duration || duration.end > b.length) return blob;
+    const total = duration.end - duration.at;
+    const head = b.slice(0, duration.end);
+    head.fill(0, duration.at);
+    head[duration.at] = 0xec;                // Void
+    head[duration.at + 1] = 0x80 | (total - 2); // size of the filler that follows
+    return new Blob([head, blob.slice(duration.end)], { type: blob.type });
+}
+
+// Ends a take for good. A paused take's file is already complete (pausing
+// flushed it), so whatever the final stop still delivers is dropped.
+function closeTake(take) {
+    if (recording === take) {
+        // Ended mid-recording, e.g. its history row was deleted meanwhile.
+        recording = null;
+        stopRecLive();
+        setMicLive(null);
+        $('record').classList.remove('recording');
+        $('import').disabled = false;
+    }
+    releaseMic(take);
+    if (take.recorder && take.recorder.state !== 'inactive') take.recorder.stop();
+    if (take.ctx && take.ctx.state !== 'closed') take.ctx.close();
+}
+
+let starting = false; // a tap is waiting for the mic; ignore further taps
+
 $('record').addEventListener('click', async () => {
-    if (mediaRecorder && mediaRecorder.state === 'recording') {
-        // Disable immediately: MediaRecorder.state flips to 'inactive'
-        // synchronously inside stop(), before onstop fires. Disabling the
-        // button closes that window so a rapid second tap can't fall
-        // through to the "start a new recording" branch below and race
-        // with this recording's still-pending onstop.
-        $('record').disabled = true;
-        mediaRecorder.stop();
+    if (recording) {
+        stopTake(recording);
         return;
     }
-
+    if (starting) return;
+    starting = true;
+    // A take stopped for review is continued; otherwise a new one starts.
+    const paused = current && current.take;
+    const take = paused || newTake();
+    if (take.ctx) take.ctx.resume().catch(() => {}); // still inside the tap (Safari)
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mime = pickMime();
-        // Keep the recorder instance and its chunk buffer in local scope so
-        // the ondataavailable/onstop closures are self-contained and can't
-        // be corrupted if the shared `mediaRecorder` binding is ever
-        // reassigned before this recording's onstop has run.
-        const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-        const recChunks = [];
-        mediaRecorder = recorder;
-
-        recorder.ondataavailable = (e) => recChunks.push(e.data);
-        recorder.onstop = () => {
-            stopRecLive();
-            stream.getTracks().forEach((t) => t.stop());
-            const type = (recorder.mimeType || 'audio/webm').split(';')[0];
-            showPreview(new Blob(recChunks, { type }), type);
-            $('record').classList.remove('recording');
-            $('record').disabled = false;
-            $('import').disabled = false;
-        };
-
-        recorder.start();
-        startRecLive(stream);
-        $('record').classList.add('recording');
-        $('preview').hidden = true;
-        $('import').disabled = true;
-        setStatus('recording', STR.recording);
+        const audio = micsShown ? { deviceId: { exact: $('mic-select').value } } : true;
+        const stream = await navigator.mediaDevices.getUserMedia({ audio });
+        // Permission is granted now, so labels are readable: this is where
+        // the picker first shows up on a fresh install.
+        await refreshMics();
+        if (paused) await continueTake(take, stream);
+        else await startTake(take, stream);
+        captureStarted(take);
     } catch (err) {
+        // A paused take stays in review, ready for another try.
+        if (paused) {
+            releaseMic(take);
+            take.ctx.suspend().catch(() => {});
+        } else {
+            closeTake(take);
+        }
         setStatus('error', STR.mic_error + ': ' + err.message);
+    } finally {
+        starting = false;
     }
 });
 
 $('import').addEventListener('click', () => {
-    if (mediaRecorder && mediaRecorder.state === 'recording') return;
+    if (recording) return;
     $('import-audio').click();
 });
 
@@ -346,7 +580,7 @@ $('import-audio').addEventListener('change', () => {
 
 $('discard').addEventListener('click', async () => {
     const entry = current;
-    current = null;
+    clearCurrent();
     $('preview').hidden = true;
     setStatus('ready', STR.ready);
     // Explicit discard is the one case where the persisted row should go.
@@ -364,7 +598,7 @@ $('discard').addEventListener('click', async () => {
 // row (e.g. it was sent or deleted from the history list instead).
 function closePreviewIfCurrent(id) {
     if (current && current.id === id) {
-        current = null;
+        clearCurrent();
         $('preview').hidden = true;
         setStatus('ready', STR.ready);
     }
@@ -404,7 +638,7 @@ $('send').addEventListener('click', async () => {
     const { blob, mime, createdAt } = entry;
 
     $('preview').hidden = true;
-    current = null;
+    clearCurrent();
     setStatus('sending', STR.sending);
 
     // Wait for the 'unsent' row from showPreview before flipping its status.
@@ -557,7 +791,7 @@ $('clear-history').addEventListener('click', async () => {
     await dbClear();
     // The preview's row is gone too, so the preview can't stay open.
     if (current) {
-        current = null;
+        clearCurrent();
         $('preview').hidden = true;
         setStatus('ready', STR.ready);
     }
@@ -712,6 +946,13 @@ async function renderHistory() {
             renderHistory();
         });
         actions.appendChild(del);
+
+        // The row of a take being continued right now holds only its earlier
+        // part: sending or deleting it would cut the take off mid-recording.
+        if (recording && current && current.take === recording && current.id === entry.id) {
+            retry.disabled = true;
+            del.disabled = true;
+        }
 
         li.appendChild(actions);
         list.appendChild(li);
@@ -874,6 +1115,8 @@ showSections();
 renderHistory();
 $('share-preview').hidden = !CAN_SHARE;
 consumeSharedFile();
+refreshMics();
+if (navigator.mediaDevices) navigator.mediaDevices.addEventListener('devicechange', refreshMics);
 
 if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js');

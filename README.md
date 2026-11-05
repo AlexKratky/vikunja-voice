@@ -38,6 +38,8 @@ Invalid input gets `422` with Laravel's JSON validation errors. A `202` means th
 ## Features
 
 - One-tap recorder PWA, installable on mobile, with browser-local history and retry
+- Microphone picker when the device has more than one input; while recording it shows which input is live
+- Stop and continue: in review, tap the mic again to add more to the same recording; the mic is released in between
 - Accepts audio shared from other Android apps (Web Share Target), and can share or download recordings back out
 - Structured extraction: title, description, due date, priority (Vikunja 0–5 scale), project, labels
 - Several tasks from one recording: say "new task" out loud and keep dictating; a change of topic alone never splits

@@ -18,12 +18,14 @@ return [
         'history' => 'Historie',
         'history_note' => 'jen v tomto prohlížeči',
         'delete_all' => 'Smazat vše',
+        'mic' => 'Mikrofon',
     ],
 
     'js' => [
         'ready' => 'Připraveno',
         'recording' => 'Nahrávám… (klepni pro stop)',
         'review' => 'Zkontroluj a odešli',
+        'review_continue' => 'Odešli, nebo mikrofonem doplň',
         'sending' => 'Odesílám…',
         'sent' => 'Odesláno ✓ (zpracuje se na pozadí)',
         'send_error' => 'Chyba odeslání',
@@ -48,6 +50,7 @@ return [
         'seek' => 'Pozice v nahrávce',
         'record' => 'Nahrávat',
         'stop_recording' => 'Zastavit nahrávání',
+        'continue_recording' => 'Pokračovat v nahrávání',
         'share_recording' => 'Sdílet nahrávku',
         'download_recording' => 'Stáhnout nahrávku',
         'share_target_error' => 'Sdílený soubor se nepodařilo přijmout. Otevři aplikaci a zkus sdílet znovu.',
